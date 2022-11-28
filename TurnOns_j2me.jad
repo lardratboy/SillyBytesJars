@@ -1,7 +1,7 @@
 MIDlet-Name: TurnOns
 MIDlet-Version: 1.0.0
 MIDlet-Vendor: SillyBytes, LLC
-MIDlet-Jar-URL: TurnOns_j2me.jar
+MIDlet-Jar-URL: http://raw.githubusercontent.com/lardratboy/SillyBytesJars/main/TurnOns_j2me.jar
 MIDlet-Jar-Size: 57641
 MicroEdition-Profile: MIDP-1.0
 MicroEdition-Configuration: CLDC-1.0
