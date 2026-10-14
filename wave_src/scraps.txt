@@ -1,0 +1,233 @@
+
+	// ------------------------------------------------------------------------
+
+	//
+	//	LoadVisualsData()
+	//
+	
+#if 0
+	
+	private Image imageTable[];
+	
+	private boolean LoadVisualsData( String filename, boolean bUseHttp )
+	{
+		CFileReader inFile = new CFileReader();
+		
+System.out.println( "attempting to open " + filename );
+		
+		if ( !inFile.Open( filename, bUseHttp ) ) {
+		
+			return false;
+	
+		}
+
+System.out.println( "open worked!" );
+		
+		int chunkSize = inFile.Read_16();
+		
+		// --------------------------------------------------------------------
+		
+		if ( !inFile.Read_Validate_32( ((0xDE << 24) | (0xCA << 16) | (0xFB << 8) | 0xAD) ) ) {
+		
+			inFile.Close();
+			inFile = null;
+			return false;
+		
+		}
+
+		// deal with the palettes			
+		// ----------------------------------------------------------------
+		
+		int paletteCount = inFile.ReadByte();
+		
+//System.out.println( "palette count = " + paletteCount );
+
+		byte palette[][] = new byte [ paletteCount ][];
+		
+		for ( int i = 0; i < paletteCount; i++ ) {
+		
+			if ( !inFile.Read_Validate_16( (short)0xDEAD ) ) {
+			
+				inFile.Close();
+				inFile = null;
+				return false;
+				
+			}
+			
+			int colorCount = inFile.Read_16();
+			
+//System.out.println( "\tPalette " + i + " colors " + colorCount );
+			
+			palette[ i ] = inFile.Read( colorCount * 3 );
+					
+			if ( !inFile.Read_Validate_16( (short)0xBEEF ) ) {
+			
+				inFile.Close();
+				inFile = null;
+				return false;
+				
+			}
+			
+		}
+
+		// build ARGB4444 image
+		// --------------------------------------------------------------------
+		
+//System.out.println( "Palettes = " + palette.length );
+		
+		short palette_argb4444[][] = new short [ palette.length ][];
+		
+		short opaque_alpha_argb4444 = (short)(0xF << 12);
+		
+		for ( int i = 0; i < palette.length; i++ ) {
+		
+			// -----------------------------------------------------------------
+		
+			int count = palette[ i ].length / 3;
+			
+			palette_argb4444[ i ] = new short [ count ];
+			
+			// ----------------------------------------------------------------
+			
+			short pal_16[] = palette_argb4444[ i ];
+			
+			byte pal_8[] = palette[ i ];
+			
+			int index_8 = 3;
+			
+			pal_16[ 0 ] = 0;
+			
+			for ( int j = 1; j < count; j++ ) {
+			
+				int r = pal_8[ index_8++ ];
+				int g = pal_8[ index_8++ ];
+				int b = pal_8[ index_8++ ];
+				
+				if ( 0 > r ) r += 255;
+				if ( 0 > g ) g += 255;
+				if ( 0 > b ) b += 255;
+				
+				r = (r * 15) / 255;
+				g = (g * 15) / 255;
+				b = (b * 15) / 255;
+			
+				pal_16[ j ] = 
+					(short)(
+						((r << 8) & 0xf00) |
+						((g << 4) & 0x0f0) |
+						((b << 0) & 0x00f) |
+						opaque_alpha_argb4444
+					); 
+
+			}
+		
+		}
+		
+		// ----------------------------------------------------------------
+		
+		int imageCount = inFile.Read_16();
+		
+System.out.println( "image count = " + imageCount );
+		
+		imageTable = new Image [ imageCount ];
+		
+		for ( int i = 0; i < imageCount; i++ ) {
+		
+			if ( !inFile.Read_Validate_16( (short)0xDEAD ) ) {
+			
+				inFile.Close();
+				inFile = null;
+				return false;
+				
+			}
+			
+			int w = inFile.ReadByte();
+			int h = inFile.ReadByte();
+			
+//			imageTable[ i ] = Image.createImage( w, h );
+			imageTable[ i ] = DirectUtils.createImage( w, h, 0 ); // full transparency
+			
+//System.out.println( "image " + i + " size " + w + "x" + h );
+			
+			// ----------------------------------------------------------------
+			
+			Graphics g = imageTable[ i ].getGraphics();
+			
+			DirectGraphics dg = DirectUtils.getDirectGraphics( g );
+
+			// read/convert each scanline in the bitmap
+			// ----------------------------------------------------------------
+			
+			short pal_16[] = palette_argb4444[ 0 ];
+			
+			short scanline_16[] = new short [ w ];
+			
+			for ( int y = 0; y < h; y++ ) {
+			
+				byte scanline_8[] = inFile.Read( w );
+				
+				// ------------------------------------------------------------
+				
+				for ( int x = 0; x < w; x++ ) {
+				
+					int index = scanline_8[ x ];
+					
+					if ( 0 > index ) index += 255;
+				
+					scanline_16[ x ] = pal_16[ index ];
+					
+					dg.drawPixels(
+						scanline_16				// pixels
+						,false					// transparency
+						,0						// offset
+						,w						// scanlength
+						,0						// x
+						,y						// y
+						,w						// w
+						,1						// h
+						,0						// manipulation
+						,DirectGraphics.TYPE_USHORT_4444_ARGB
+					);
+				
+				}
+				
+				scanline_8 = null;
+				
+			}
+			
+			scanline_16 = null;
+			
+			// -----------------------------------------------------------------
+			
+			dg = null;
+			g = null;
+			
+			// ----------------------------------------------------------------
+		
+			if ( !inFile.Read_Validate_16( (short)0xBEEF ) ) {
+			
+				inFile.Close();
+				inFile = null;
+				return false;
+				
+			}
+		}		
+		
+		// ----------------------------------------------------------------
+		
+		System.out.println( "visuals loaded!" );
+		
+		inFile.Close();
+		inFile = null;
+		return true;
+	}
+	
+#endif
+	
+	// ------------------------------------------------------------------------
+		if ( !LoadVisualsData( basename + ".visuals", bUseHttp ) ) {
+		
+			return false;
+		
+		}
+		

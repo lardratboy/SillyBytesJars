@@ -1,0 +1,144 @@
+// =============================================================================
+//	Copyright (c) 2003, SILLY BYTES, LLC
+//	All rights reserved, unauthorized reproduction prohibited
+// =============================================================================
+
+#include "cross_language.h"
+#include "project.h"
+
+// =============================================================================
+
+#if defined(USE_SEPERATE_MAIN_MENU)
+
+// -----------------------------------------------------------------------------
+
+import javax.microedition.lcdui.*;
+
+// -----------------------------------------------------------------------------
+
+//
+//	menu
+//
+
+public class menu extends List implements CommandListener {
+
+	// ------------------------------------------------------------------------
+	
+	private	PROJECT_NAME midlet;
+	
+	private Command cmdExit;
+	
+	int idxContinue;
+	
+	int idxNewGame;
+	
+	int idxOptions;
+	
+	int idxHelp;
+	
+	int idxAbout;
+	
+	// ------------------------------------------------------------------------
+	
+	public menu( PROJECT_NAME midlet ) {
+	
+		super( midlet.getAppProperty("MIDlet-Name"), List.IMPLICIT );
+		
+		this.midlet = midlet;
+		
+		// Add the commands
+		// --------------------------------------------------------------------
+		
+		int nextPriority = 1;
+		
+		cmdExit = new Command( midlet.LoadString( "Exit" ), Command.EXIT, 1 );
+		
+		addCommand( cmdExit );
+	
+		// --------------------------------------------------------------------
+
+		if ( midlet.HasSavedGameState() ) {
+		
+			idxContinue = append( midlet.LoadString( "Continue Game" ), null );
+		
+		} else {
+		
+			idxContinue = -1;
+		
+		}
+		
+		idxNewGame = append( midlet.LoadString( "New Game" ), null );
+		
+		idxOptions = append( midlet.LoadString( "Settings" ), null );
+		
+		idxHelp = append( midlet.LoadString( "Help" ), null );
+		
+		idxAbout = append( midlet.LoadString( "About" ), null );
+		
+		// --------------------------------------------------------------------
+		
+		setCommandListener( this );
+
+	}
+	
+	// ------------------------------------------------------------------------
+	
+	public void commandAction( Command c, Displayable s ) {
+	
+		if ( c.equals( List.SELECT_COMMAND ) ) {
+		
+			int index = getSelectedIndex();
+			
+			if ( -1 == index ) return;
+			
+			Display display = Display.getDisplay( midlet );
+	
+			if ( index == idxContinue ) {
+			
+				display.setCurrent( new PuzzleCanvas( midlet, true ) );
+				
+			} else if ( index == idxNewGame ) {
+			
+				display.setCurrent( new PuzzleCanvas( midlet, false ) );
+				
+			} else if ( index == idxOptions ) {
+			
+				display.setCurrent( new OptionsMenu( midlet, this ) );
+			
+			} else if ( index == idxHelp ) {
+			
+				display.setCurrent(
+					new TextViewer(
+						midlet.LoadString( "Help" )
+						,midlet.LoadString( "file:/res/help.txt" )
+						,midlet
+						,this
+					)
+				);
+				
+			} else if ( index == idxAbout ) {
+			
+				display.setCurrent(
+					new TextViewer(
+						midlet.LoadString( "About" )
+						,midlet.LoadString( "file:/res/about.txt" )
+						,midlet
+						,this
+					)
+				);
+				
+			}
+			
+		} else if ( c.equals( cmdExit ) ) {
+		
+			midlet.exit();
+		
+		}
+	
+	}
+	
+	// ------------------------------------------------------------------------
+
+} // menu
+
+#endif // defined(USE_SEPERATE_MAIN_MENU)

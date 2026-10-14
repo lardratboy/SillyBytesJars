@@ -1,0 +1,335 @@
+// =============================================================================
+//	Copyright (c) 2003, SILLY BYTES, LLC
+//	All rights reserved, unauthorized reproduction prohibited
+// =============================================================================
+
+#include "cross_language.h"
+#include "project.h"
+
+// =============================================================================
+
+#if defined(NOKIA_UI_API_SPECIFIC_BUILD)
+#define USE_NOKIA
+#endif // defined(NOKIA_UI_API_SPECIFIC_BUILD)
+
+//#define DISABLE_SPLASH_IMAGE
+#define LOAD_SPLASH_IMAGE_ONLY_DURNING_PAINT
+
+// -----------------------------------------------------------------------------
+
+#if defined(USE_NOKIA)
+import com.nokia.mid.ui.*;
+#endif
+
+// -----------------------------------------------------------------------------
+
+import javax.microedition.lcdui.*;
+
+// -----------------------------------------------------------------------------
+
+//
+//	SplashCanvas
+//
+
+#if defined(USE_NOKIA)
+public class splash extends FullCanvas implements Runnable {
+#else
+public class splash extends Canvas implements Runnable {
+#endif
+
+    // ------------------------------------------------------------------------
+    
+#if !defined(DISABLE_SPLASH_IMAGE)
+	private Image m_image;
+#endif
+
+    private PROJECT_NAME midlet;
+    
+    private Thread m_bootstrapThread;
+    
+    // ------------------------------------------------------------------------
+    
+    //
+    //	splash()
+    //
+    
+	public splash( PROJECT_NAME midlet ) {
+	
+		this.midlet = midlet;
+	
+		try {
+		
+#if (!defined(DISABLE_SPLASH_IMAGE)) && (!defined(LOAD_SPLASH_IMAGE_ONLY_DURNING_PAINT))
+			m_image = Image.createImage( "/res/splash.png" );
+#endif
+			
+			start();
+		
+		} catch ( Exception e ) {
+		
+			System.out.println( "sc:1:" + e );
+		
+		}
+	
+	}
+	
+	//
+	//	paint()
+	//
+	
+	protected void paint( Graphics g ) {
+	
+	// ------------------------------------------------------------------------	
+	
+#if defined(LOAD_SPLASH_IMAGE_ONLY_DURNING_PAINT)
+	
+		try {
+		
+			m_image = Image.createImage( "/res/splash.png" );
+		
+		} catch ( Exception e ) {
+		
+			System.out.println( "sc:2:" + e );
+		
+		}
+		
+#endif // defined(LOAD_SPLASH_IMAGE_ONLY_DURNING_PAINT)
+
+	// ------------------------------------------------------------------------	
+
+#if !defined(DISABLE_SPLASH_IMAGE)
+
+		if ( null != m_image ) {
+		
+			int cw = getWidth();
+			int ch = getHeight();
+		
+			int iw = m_image.getWidth();
+			int ih = m_image.getHeight();
+		
+			int x = ((cw - iw) >> 1);
+			int y = ((ch - ih) >> 1);
+		
+			g.drawImage(
+				m_image
+				,x
+				,y
+				,Graphics.LEFT | Graphics.TOP
+			);
+		
+			g.setColor( 255, 255, 255 );
+
+			// ----------------------------------------------------------------
+			
+			if ( 0 < y ) {
+			
+				g.fillRect( 0, 0, cw, y );
+				
+			}
+			
+			// ----------------------------------------------------------------
+			
+			if ( 0 < x ) {
+			
+				g.fillRect( 0, y, x, ih );
+				
+			}
+			
+			x += iw;
+
+			if ( cw > x ) {
+			
+				g.fillRect( x, y, cw - x, ih );
+				
+			}
+	
+			// ----------------------------------------------------------------
+			
+			y += ih;
+			
+			if ( 0 < y ) {
+			
+				g.fillRect( 0, y, cw, ch - y );
+				
+			}
+			
+		} else {
+		
+			g.setColor( 255, 255, 255 );
+		
+			g.fillRect( 0, 0, getWidth(), getHeight() );
+			
+			g.setColor( 0, 0, 0 );
+			
+			g.drawString(
+				midlet.LoadString( "Loading please wait" )
+				,getWidth()>>1
+				,getHeight()>>1
+				,Graphics.TOP | Graphics.HCENTER
+			);
+			
+		}
+		
+#else
+
+		g.setColor( 255, 255, 255 );
+	
+		g.fillRect( 0, 0, getWidth(), getHeight() );
+		
+		g.setColor( 0, 0, 0 );
+		
+		g.drawString(
+			midlet.LoadString( "Loading please wait" )
+			,getWidth()>>1
+			,getHeight()>>1
+			,Graphics.TOP | Graphics.HCENTER
+		);
+		
+#endif // !defined(DISABLE_SPLASH_IMAGE)
+	
+	// ------------------------------------------------------------------------	
+	
+#if defined(LOAD_SPLASH_IMAGE_ONLY_DURNING_PAINT)
+
+		m_image = null;
+		System.gc();
+		
+#endif
+
+	}
+	
+	protected void hideNotify() {
+	
+#if !defined(DISABLE_SPLASH_IMAGE)
+
+		if ( null != m_image ) {
+
+			m_image = null;
+			
+			System.gc();
+			
+		}
+		
+#endif
+	
+	}
+	
+	//
+	//	dismissIfBootstrapDone()
+	//
+	
+#if 0 // inlined
+	
+	private void dismissIfBootstrapDone() {
+	
+		if ( null == m_bootstrapThread ) {
+		
+			midlet.splashDone();
+			
+		}
+		
+	}
+	
+#endif
+	
+	//
+	//	start()
+	//
+
+	protected void start() {
+	
+		// the load thread
+		// --------------------------------------------------------------------
+
+		m_bootstrapThread = new Thread( this );
+		
+		if ( null != m_bootstrapThread ) {
+
+			m_bootstrapThread.start();
+			
+		}
+		
+		// the auto timer?
+		// --------------------------------------------------------------------
+		
+	}
+	
+	//
+	//	keyPressed()
+	//
+	
+	protected void keyPressed( int keyCode ) {
+
+#if 1
+	
+		if ( null == m_bootstrapThread ) {
+		
+			midlet.splashDone();
+			
+		}
+		
+#else
+
+		dismissIfBootstrapDone();
+		
+#endif
+	
+	}
+    
+	public void	run() {
+	
+		try {
+		
+#if 1
+
+			long expectedOutTime = System.currentTimeMillis() + 4000L;
+
+			Thread.sleep( 500 );
+
+			midlet.bootstrap();
+			
+			long currentTime = System.currentTimeMillis();
+			
+			if ( currentTime < expectedOutTime ) {
+			
+				Thread.sleep( expectedOutTime - currentTime );
+			
+			}
+
+#else
+		
+			long time = System.currentTimeMillis();
+			
+			Thread.sleep( 500 );
+			
+			long bootTime = System.currentTimeMillis();
+			
+			midlet.bootstrap();
+			
+			bootTime = System.currentTimeMillis() - bootTime;
+			
+			time = System.currentTimeMillis() - time;
+			
+//System.out.println( "bootstrap took " + bootTime );
+			
+			if ( 5000L > time ) {
+			
+				Thread.sleep( 5000L - time );
+			
+			}
+			
+#endif
+			
+			midlet.splashDone();
+		
+			m_bootstrapThread = null;
+			
+		} catch ( Exception e ) {
+		
+			// ?
+		
+		}
+	
+	}
+		
+} // SplashCanvas

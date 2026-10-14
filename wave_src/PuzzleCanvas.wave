@@ -1,0 +1,962 @@
+// =============================================================================
+//	Copyright (c) 2003, SILLY BYTES, LLC
+//	All rights reserved, unauthorized reproduction prohibited
+// =============================================================================
+
+#include "cross_language.h"
+#include "project.h"
+
+// =============================================================================
+
+#if defined(NOKIA_UI_API_SPECIFIC_BUILD)
+#define USE_NOKIA
+#endif // defined(NOKIA_UI_API_SPECIFIC_BUILD)
+
+//#define DBUG_HEART_BEAT_THREAD
+#define CALL_SERVICE_REPAINTS_MANUALLY
+#define IMPLEMENT_RUNNABLE_INTERFACE_ON_CANVAS
+#define PAUSE_ON_UNDETERMINED_CANVAS_HIDE
+
+// -----------------------------------------------------------------------------
+
+#define NEW_INPUT_SCHEME
+
+// -----------------------------------------------------------------------------
+
+#if defined(DBUG_HEART_BEAT_THREAD)
+
+	#define TRACK_INTERNAL_CANVAS_STATE
+
+	#if defined(TRACK_INTERNAL_CANVAS_STATE)
+
+	#define CANVAS_STATE_INSIDE_PAINT		0x0001
+	#define CANVAS_STATE_INSIDE_FRAME		0x0002
+	#define CANVAS_STATE_INSIDE_WAIT_1		0x0004
+	#define CANVAS_STATE_INSIDE_WAIT_2		0x0008
+
+	#define SET_INTERNAL_CANVAS_STATE( XXX ) \
+		heartbeatThread.lastCanvasStateChangeTime = System.currentTimeMillis(); \
+		internalCanvasState |= (XXX);
+		
+	#define CLEAR_INTERNAL_CANVAS_STATE( XXX ) \
+		heartbeatThread.lastCanvasStateChangeTime = System.currentTimeMillis(); \
+		internalCanvasState &= (~(XXX));
+
+	#else
+
+	#define SET_INTERNAL_CANVAS_STATE( XXX )		/* nop */
+	#define CLEAR_INTERNAL_CANVAS_STATE( XXX )		/* nop */
+
+	#endif // defined(TRACK_INTERNAL_CANVAS_STATE)
+	
+#else
+
+	#define SET_INTERNAL_CANVAS_STATE( XXX )		/* nop */
+	#define CLEAR_INTERNAL_CANVAS_STATE( XXX )		/* nop */
+	
+#endif // defined(DBUG_HEART_BEAT_THREAD)
+
+// -----------------------------------------------------------------------------
+
+#include "GameInternals.h"
+
+// -----------------------------------------------------------------------------
+
+#if defined(USE_NOKIA)
+import com.nokia.mid.ui.*;
+#endif
+
+// -----------------------------------------------------------------------------
+
+import javax.microedition.lcdui.*;
+
+// -----------------------------------------------------------------------------
+
+//
+//	PuzzleCanvas
+//
+
+#if defined(USE_NOKIA)
+public class PuzzleCanvas extends FullCanvas implements Runnable
+#else
+#if defined(J2ME_BASIC_BUILD)
+public class PuzzleCanvas extends Canvas implements Runnable, CommandListener
+#else
+public class PuzzleCanvas extends Canvas implements Runnable
+#endif // defined(J2ME_BASIC_BUILD)
+#endif
+	{
+	
+	// ------------------------------------------------------------------------
+	
+#if defined(SLIDE_SHOW_PROJECT)
+
+	private Image m_ActiveSlideImage;
+	
+	private int m_ActiveSlideNumber;
+
+#endif // defined(SLIDE_SHOW_PROJECT)
+
+	// data
+	// ------------------------------------------------------------------------
+
+	private PROJECT_NAME midlet;
+
+	private boolean bHaveSetCanvas;
+	
+	private short canvas_w;
+	
+	private short canvas_h;
+	
+	// ------------------------------------------------------------------------
+	
+#if defined(GAME_USES_MESSAGE_STRINGS)
+
+	private volatile boolean bHandlingGameMessageDisplay;
+
+#endif // defined(GAME_USES_MESSAGE_STRINGS)
+	
+	// ------------------------------------------------------------------------
+	
+#if defined(PAUSE_ON_UNDETERMINED_CANVAS_HIDE)
+
+	short userPausedRequestCounter;
+	
+	boolean bMostLikelyInGamePauseReturn; // determines main menu status
+	
+#endif //
+
+	// ------------------------------------------------------------------------
+	
+#if defined(NEW_INPUT_SCHEME)
+
+	private byte okay_to_clear_bits;
+	
+	private byte pending_input_bits_to_clear;
+
+#endif // defined(NEW_INPUT_SCHEME)
+	
+	// ------------------------------------------------------------------------
+	
+#if defined(TRACK_INTERNAL_CANVAS_STATE)
+
+	private volatile short internalCanvasState;
+	
+#endif // defined(TRACK_INTERNAL_CANVAS_STATE)
+
+	// ------------------------------------------------------------------------
+	
+#if defined(J2ME_BASIC_BUILD)
+
+	private Command cmdMenu;
+	
+#endif // defined(J2ME_BASIC_BUILD)
+
+	// constructor
+	// ------------------------------------------------------------------------
+	
+	public PuzzleCanvas( PROJECT_NAME midlet, boolean bContinue ) {
+	
+		this.midlet = midlet;
+		
+#if defined(SLIDE_SHOW_PROJECT)
+
+		SLIDESHOW_NextSlide();
+
+#else
+
+#if defined(USE_SEPERATE_MAIN_MENU)
+	
+		if ( midlet.gameInternals.SetCanvas( this ) ) {
+		
+			bHaveSetCanvas = true;
+			
+			midlet.gameInternals.Start( bContinue );
+		
+		}
+		
+#endif
+
+#endif // defined(SLIDE_SHOW_PROJECT)
+
+#if defined(J2ME_BASIC_BUILD)
+
+		addCommand( cmdMenu = new Command( midlet.LoadString( "Options" ), Command.HELP, 0 ) );
+			
+		setCommandListener( this );
+		
+#endif // defined(J2ME_BASIC_BUILD)
+
+		start();
+			
+	}
+
+	// need	to handle key presses (convert to virtual gamepad buttons)
+	// ------------------------------------------------------------------------
+
+	protected void keyPressed( int keyCode ) {
+	
+#if !defined(SLIDE_SHOW_PROJECT)
+
+		byte bitToSet = 0;
+
+		switch ( getGameAction( keyCode ) ) {
+		
+		default:
+#if defined(USE_NOKIA)
+			switch ( keyCode ) {
+			
+			case FullCanvas.KEY_SOFTKEY1:
+			case FullCanvas.KEY_SOFTKEY2:
+			case FullCanvas.KEY_SOFTKEY3:
+				bitToSet = GameInternals_INPUT_BUTTON_A;
+				break;
+			
+			}
+#endif // defined(USE_NOKIA)
+			break;
+		
+		case Canvas.UP:
+			bitToSet = GameInternals_INPUT_DPAD_U;
+			break;
+			
+		case Canvas.DOWN:
+			bitToSet = GameInternals_INPUT_DPAD_D;
+			break;
+			
+		case Canvas.LEFT:
+			bitToSet = GameInternals_INPUT_DPAD_L;
+			break;
+			
+		case Canvas.RIGHT:
+			bitToSet = GameInternals_INPUT_DPAD_R;
+			break;
+			
+		case Canvas.FIRE:
+			bitToSet = GameInternals_INPUT_BUTTON_A;
+			break;
+			
+		}
+		
+		// --------------------------------------------------------------------
+		
+		if ( 0 != bitToSet ) {
+		
+			GameInternals.game_pad_flags |= bitToSet;
+		
+#if defined(NEW_INPUT_SCHEME)
+
+			okay_to_clear_bits &= ~bitToSet;
+
+			pending_input_bits_to_clear &= ~bitToSet;
+
+#endif // defined(NEW_INPUT_SCHEME)
+
+		}	
+
+#endif // !defined(SLIDE_SHOW_PROJECT)
+
+	}
+	
+	// ========================================================================
+	
+#if defined(SLIDE_SHOW_PROJECT)
+
+	private synchronized void SLIDESHOW_NextSlide() {
+	
+		for ( int attempt = 0; attempt < 2; attempt++ ) {
+	
+			try {
+		
+				if ( null != m_ActiveSlideImage ) {
+				
+					++m_ActiveSlideNumber;
+			
+				} else {
+				
+					m_ActiveSlideNumber = 1;
+				
+				}
+				
+				String filename = "/res/slide_" + m_ActiveSlideNumber + ".png";
+				
+				m_ActiveSlideImage = Image.createImage( filename );
+				
+//System.out.println( filename );
+				
+				repaint( 0, 0, canvas_w, canvas_h );
+		
+				break;
+				
+			} catch ( Throwable e ) {
+			
+				m_ActiveSlideImage = null;
+			
+				m_ActiveSlideNumber = 1;
+			
+			}
+			
+		}
+	
+	}
+
+#endif // defined(SLIDE_SHOW_PROJECT)
+
+	// ========================================================================
+	
+	protected void keyReleased(	int	keyCode	) {
+
+#if defined(SLIDE_SHOW_PROJECT)
+
+		SLIDESHOW_NextSlide();
+
+#else
+
+		byte bitToClear = 0;
+		
+		switch ( getGameAction( keyCode ) ) {
+		
+		default:
+		
+			switch ( keyCode ) {
+			
+			default:
+				Display.getDisplay( midlet ).setCurrent( new PauseMenu( midlet, this, false ) );
+#if defined(PAUSE_ON_UNDETERMINED_CANVAS_HIDE)
+				++userPausedRequestCounter;
+#endif // defined(PAUSE_ON_UNDETERMINED_CANVAS_HIDE)
+				break;
+				
+#if defined(USE_NOKIA)
+			case FullCanvas.KEY_SOFTKEY1:
+			case FullCanvas.KEY_SOFTKEY2:
+			case FullCanvas.KEY_SOFTKEY3:
+				bitToClear = GameInternals_INPUT_BUTTON_A;
+				break;
+#endif // defined(USE_NOKIA)
+		
+			}
+			break;
+		
+		case Canvas.UP:
+			bitToClear = GameInternals_INPUT_DPAD_U;
+			break;
+			
+		case Canvas.DOWN:
+			bitToClear = GameInternals_INPUT_DPAD_D;
+			break;
+			
+		case Canvas.LEFT:
+			bitToClear = GameInternals_INPUT_DPAD_L;
+			break;
+			
+		case Canvas.RIGHT:
+			bitToClear = GameInternals_INPUT_DPAD_R;
+			break;
+			
+		case Canvas.FIRE:
+			bitToClear = GameInternals_INPUT_BUTTON_A;
+			break;
+			
+		}
+		
+		// --------------------------------------------------------------------
+		
+		if ( 0 != bitToClear ) {
+		
+#if defined(NEW_INPUT_SCHEME)
+
+			if ( 0 != (bitToClear & okay_to_clear_bits) ) {
+
+				GameInternals.game_pad_flags &= ~bitToClear;
+				
+			} else {
+			
+				pending_input_bits_to_clear |= bitToClear;
+				
+			}
+			
+#else
+
+			GameInternals.game_pad_flags &= ~bitToClear;
+		
+#endif // defined(NEW_INPUT_SCHEME)
+
+		}
+	
+#endif // defined(SLIDE_SHOW_PROJECT)
+
+	}
+
+	// ------------------------------------------------------------------------
+	// Start/stop the thread
+	// ------------------------------------------------------------------------
+
+	private	boolean	bRunThread;
+	
+	private	Thread thread;
+
+	// ------------------------------------------------------------------------
+
+#if defined(DBUG_HEART_BEAT_THREAD)
+
+	private HeartBeatThread heartbeatThread;
+
+#endif // defined(DBUG_HEART_BEAT_THREAD)
+
+	// ------------------------------------------------------------------------
+	
+	//
+	//	start()
+	//
+
+	public synchronized void start() {
+	
+		// --------------------------------------------------------------------
+		
+		if ( null != midlet.gameInternals ) {
+		
+			bRunThread = true;
+
+			// ----------------------------------------------------------------
+			
+			thread = new Thread( this );
+			
+			thread.start();
+
+			// ----------------------------------------------------------------
+			
+#if defined(DBUG_HEART_BEAT_THREAD)
+
+			heartbeatThread = new HeartBeatThread( (Displayable)this );
+
+			heartbeatThread.start();
+			
+#endif // defined(DBUG_HEART_BEAT_THREAD)
+			
+		}
+	}
+	
+	//
+	//	stop()
+	//
+
+	public synchronized void stop() {
+	
+		bRunThread = false;
+		
+	}
+	
+	// ------------------------------------------------------------------------
+	
+	//
+	//	synchronized_GamePaint()
+	//
+	
+	private synchronized void synchronized_GamePaint( Graphics g ) {
+	
+#if defined(SLIDE_SHOW_PROJECT)
+
+		if ( null != m_ActiveSlideImage ) {
+		
+			int cw = getWidth();
+			int ch = getHeight();
+		
+			int iw = m_ActiveSlideImage.getWidth();
+			int ih = m_ActiveSlideImage.getHeight();
+		
+			int x = ((cw - iw) >> 1);
+			int y = ((ch - ih) >> 1);
+		
+			g.drawImage(
+				m_ActiveSlideImage
+				,x
+				,y
+				,Graphics.LEFT | Graphics.TOP
+			);
+		
+			g.setColor( 255, 255, 255 );
+
+			// ----------------------------------------------------------------
+			
+			if ( 0 < y ) {
+			
+				g.fillRect( 0, 0, cw, y );
+				
+			}
+			
+			// ----------------------------------------------------------------
+			
+			if ( 0 < x ) {
+			
+				g.fillRect( 0, y, x, ih );
+				
+			}
+			
+			x += iw;
+
+			if ( cw > x ) {
+			
+				g.fillRect( x, y, cw - x, ih );
+				
+			}
+	
+			// ----------------------------------------------------------------
+			
+			y += ih;
+			
+			if ( 0 < y ) {
+			
+				g.fillRect( 0, y, cw, ch - y );
+				
+			}
+			
+		} else {
+		
+			g.setColor( 255, 255, 255 );
+		
+			g.fillRect( 0, 0, getWidth(), getHeight() );
+			
+			g.setColor( 0, 0, 0 );
+			
+			g.drawString(
+				midlet.LoadString( "Loading slide..." )
+				,getWidth()>>1
+				,getHeight()>>1
+				,Graphics.TOP | Graphics.HCENTER
+			);
+			
+		}
+	
+#else
+
+		SET_INTERNAL_CANVAS_STATE( CANVAS_STATE_INSIDE_PAINT )
+		
+		if ( bHaveSetCanvas ) {
+		
+			midlet.gameInternals.paint( g );
+			
+		} else {
+		
+			g.setColor( 255, 255, 255 );
+		
+			g.fillRect( 0, 0, getWidth(), getHeight() );
+			
+			g.setColor( 0, 0, 0 );
+			
+			g.drawString(
+				midlet.LoadString( "Refreshing" )
+				,getWidth()>>1
+				,getHeight()>>1
+				,Graphics.TOP | Graphics.HCENTER
+			);
+		
+		}
+		
+		CLEAR_INTERNAL_CANVAS_STATE( CANVAS_STATE_INSIDE_PAINT )
+		
+#endif // defined(SLIDE_SHOW_PROJECT)
+		
+	}
+	
+	//
+	//	synchronized_GameFrame()
+	//
+	
+	private synchronized void synchronized_GameFrame() {
+	
+#if !defined(SLIDE_SHOW_PROJECT)
+
+		SET_INTERNAL_CANVAS_STATE( CANVAS_STATE_INSIDE_FRAME )
+
+		// --------------------------------------------------------------------
+		
+#if defined(NEW_INPUT_SCHEME)
+
+		okay_to_clear_bits = GameInternals.game_pad_flags;
+		
+#endif // defined(NEW_INPUT_SCHEME)
+
+		// --------------------------------------------------------------------
+
+		midlet.gameInternals.Frame();
+		
+		// --------------------------------------------------------------------
+		
+#if defined(NEW_INPUT_SCHEME)
+
+		GameInternals.game_pad_flags &= ~pending_input_bits_to_clear;
+		pending_input_bits_to_clear = 0;
+		
+#endif // defined(NEW_INPUT_SCHEME)
+
+		// --------------------------------------------------------------------
+		
+		CLEAR_INTERNAL_CANVAS_STATE( CANVAS_STATE_INSIDE_FRAME )
+		
+#endif // !defined(SLIDE_SHOW_PROJECT)
+
+	}
+
+	// ------------------------------------------------------------------------
+	
+	//
+	//	paint()
+	//
+
+	public void paint( Graphics	g )	{
+	
+		synchronized_GamePaint( g );
+
+	}
+
+	// ------------------------------------------------------------------------
+	// The actual thread code
+	// ------------------------------------------------------------------------
+	
+	//
+	//	run()
+	//
+	
+	public void	run() {
+	
+#if defined(SLIDE_SHOW_PROJECT)
+
+		long delay = 60000L;
+
+#else
+
+		long delay = (long)midlet.gameInternals.FrameMillisecondDelay();
+		
+#endif // defined(SLIDE_SHOW_PROJECT)
+				
+		while (	bRunThread ) {
+		
+			try	{
+
+				// ------------------------------------------------------------
+				
+				while ( !isShown() ) {
+				
+					synchronized( this ) {
+
+						SET_INTERNAL_CANVAS_STATE( CANVAS_STATE_INSIDE_WAIT_1 )
+						
+						wait( 50L );
+						
+						CLEAR_INTERNAL_CANVAS_STATE( CANVAS_STATE_INSIDE_WAIT_1 )
+						
+					}
+				
+				}
+				
+				// ------------------------------------------------------------
+
+				long time =	System.currentTimeMillis();
+				
+				// ------------------------------------------------------------
+				
+				synchronized_GameFrame();
+			
+				repaint( 0, 0, canvas_w, canvas_h );
+				
+				// ------------------------------------------------------------
+				
+#if defined(CALL_SERVICE_REPAINTS_MANUALLY)						
+
+				serviceRepaints();
+
+#endif // defined(CALL_SERVICE_REPAINTS_MANUALLY)
+
+				// ------------------------------------------------------------
+
+#if defined(GAME_USES_MESSAGE_STRINGS)
+
+				if ( null != midlet.gameInternals.messageTextString ) {
+				
+					bHandlingGameMessageDisplay = true;
+					
+					Image messageImage = null;
+					
+					try {
+					
+						hideNotify(); // remove canvas to restore memory
+					
+						if ( null != midlet.gameInternals.messageImageString ) {
+							
+							try {
+						
+								messageImage = Image.createImage( midlet.gameInternals.messageImageString );
+							
+							} catch ( Throwable e ) {
+							
+								REPORT_EXCEPTION_POLICY( e, EXCEPTION_GAME_MESSAGE_LOAD_IMAGE );
+								
+								messageImage = null;
+							
+							}
+						
+						}
+						
+						Alert gameMessage = new Alert(
+							midlet.LoadString( midlet.gameInternals.messageTitleString )
+							,midlet.LoadString( midlet.gameInternals.messageTextString )
+							,messageImage
+							,AlertType.CONFIRMATION
+						);
+						
+						gameMessage.setTimeout( Alert.FOREVER );
+						
+						Display.getDisplay( midlet ).setCurrent( gameMessage, this );
+						
+						// wait until the alert is gone
+						
+						while ( bHandlingGameMessageDisplay ) {
+						
+							synchronized( this ) {
+							
+								wait( 50L );
+								
+							}
+							
+						}
+												
+					} catch ( Throwable e ) {
+					
+						REPORT_EXCEPTION_POLICY( e, EXCEPTION_DISPLAY_GAME_MESSAGE );
+						
+					} finally {
+					
+						messageImage = null;
+					
+						midlet.gameInternals.messageTextString = null;
+						
+						midlet.gameInternals.messageTitleString = null;
+						
+						midlet.gameInternals.messageImageString = null;
+						
+					}
+				
+				}
+
+#endif // defined(GAME_USES_MESSAGE_STRINGS)
+
+				// ------------------------------------------------------------
+				
+				time = System.currentTimeMillis() -	time;
+
+				long diff = delay - time;
+				
+				if ( 0 < diff ) {
+
+					synchronized( this ) {
+					
+						SET_INTERNAL_CANVAS_STATE( CANVAS_STATE_INSIDE_WAIT_2 )
+						
+						wait( diff );
+					
+						CLEAR_INTERNAL_CANVAS_STATE( CANVAS_STATE_INSIDE_WAIT_2 )
+						
+					}
+
+				} else {
+				
+					Thread.yield();
+				
+				}
+
+			} catch	( Throwable e ) {
+			
+				REPORT_EXCEPTION_POLICY( e, EXCEPTION_MAIN_THREAD );
+			
+				// what	should happen here?
+
+			}
+			
+		}
+
+		thread = null; // the thread releases itself?
+
+	}
+	
+	// ------------------------------------------------------------------------
+	
+	protected void hideNotify() {
+	
+#if !defined(SLIDE_SHOW_PROJECT)
+
+		if ( bHaveSetCanvas ) {
+		
+			midlet.gameInternals.RemoveCanvas( this );
+		
+			bHaveSetCanvas = false;
+		
+		}
+			
+#endif // !defined(SLIDE_SHOW_PROJECT)
+
+	}
+	
+	protected void showNotify() {
+	
+		// --------------------------------------------------------------------
+	
+#if !defined(SLIDE_SHOW_PROJECT)
+#if defined(PAUSE_ON_UNDETERMINED_CANVAS_HIDE)
+
+		if ( (0 == userPausedRequestCounter)
+#if defined(GAME_USES_MESSAGE_STRINGS)
+			&& (false == bHandlingGameMessageDisplay)
+#endif // defined(GAME_USES_MESSAGE_STRINGS)
+		 ) {
+
+			Display.getDisplay( midlet ).setCurrent( new PauseMenu( midlet, this, !bMostLikelyInGamePauseReturn ) );
+			
+			bMostLikelyInGamePauseReturn = true;
+			
+			++userPausedRequestCounter;
+			
+			return;
+			
+		} else {
+		
+			userPausedRequestCounter = 0; // clear the paused (decrement?)
+		
+		}
+				
+#endif // defined(PAUSE_ON_UNDETERMINED_CANVAS_HIDE)
+#endif // !defined(SLIDE_SHOW_PROJECT)
+
+		// --------------------------------------------------------------------
+	
+		canvas_w = (short)getWidth();
+		
+		canvas_h = (short)getHeight();
+	
+#if !defined(SLIDE_SHOW_PROJECT)
+
+		if ( !bHaveSetCanvas ) {
+		
+			System.gc();
+		
+			if ( midlet.gameInternals.SetCanvas( this ) ) {
+			
+				bHaveSetCanvas = true;
+				
+			}
+			
+		}
+		
+#endif // !defined(SLIDE_SHOW_PROJECT)
+
+		// --------------------------------------------------------------------
+
+#if defined(GAME_USES_MESSAGE_STRINGS)
+
+		bHandlingGameMessageDisplay = false;
+		
+#endif // defined(GAME_USES_MESSAGE_STRINGS)
+
+	}
+	
+	// ------------------------------------------------------------------------
+
+#if defined(DBUG_HEART_BEAT_THREAD)
+
+	//
+	//	HeartBeatThread
+	//
+
+	private	class HeartBeatThread extends Thread {
+	
+#if defined(TRACK_INTERNAL_CANVAS_STATE)
+
+		public volatile long lastCanvasStateChangeTime;
+		
+#endif // defined(TRACK_INTERNAL_CANVAS_STATE)
+
+		private Displayable displayable;
+		
+		private int tickCounter;
+		
+		// --------------------------------------------------------------------
+
+		HeartBeatThread( Displayable displayable ) {
+		
+			this.displayable = displayable;
+		
+		}
+
+		// --------------------------------------------------------------------
+		
+		public void	run() {
+		
+			while (	bRunThread ) {
+
+				try	{
+				
+					Thread.sleep( 15000L );
+					
+					System.out.println( "beat:" + (++tickCounter) );
+					
+#if defined(TRACK_INTERNAL_CANVAS_STATE)
+
+					if ( displayable == Display.getDisplay( midlet ).getCurrent() ) {
+
+						long currentMillis = System.currentTimeMillis();
+						
+						long diff = currentMillis - lastCanvasStateChangeTime;
+						
+						if ( 2000 < diff ) {
+						
+							System.out.println( "The game is locked up!" );
+						
+//							midlet.notifyPaused();
+
+						}
+						
+					}
+					
+#endif // defined(TRACK_INTERNAL_CANVAS_STATE)
+					
+				} catch	( Throwable e )	{
+
+					REPORT_EXCEPTION_POLICY( e, EXCEPTION_HEARTBEAT_THREAD );
+					
+				}
+				
+			}
+
+			heartbeatThread = null; // the thread releases itself?
+
+		}
+
+	} // HeartBeatThread
+	
+#endif // defined(DBUG_HEART_BEAT_THREAD)
+
+	// ------------------------------------------------------------------------
+	
+#if defined(J2ME_BASIC_BUILD)
+
+	public void commandAction( Command c, Displayable s ) {
+	
+		if ( c.equals( cmdMenu ) ) {
+		
+			Display.getDisplay( midlet ).setCurrent( new PauseMenu( midlet, this, false ) );
+			
+#if defined(PAUSE_ON_UNDETERMINED_CANVAS_HIDE)
+
+			++userPausedRequestCounter;
+				
+#endif // defined(PAUSE_ON_UNDETERMINED_CANVAS_HIDE)
+
+		}
+		
+	}
+
+#endif // defined(J2ME_BASIC_BUILD)
+
+	// ------------------------------------------------------------------------
+	
+}

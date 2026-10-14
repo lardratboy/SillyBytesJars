@@ -1,0 +1,70 @@
+// =============================================================================
+//	Copyright (c) 2003, SILLY BYTES, LLC
+//	All rights reserved, unauthorized reproduction prohibited
+// =============================================================================
+
+#include "cross_language.h"
+#include "project.h"
+
+// =============================================================================
+
+#if defined(BPT_USE_SIMPLE_PROFILER)
+
+import java.io.*;
+import javax.microedition.io.*;
+
+// ----------------------------------------------------------------------------
+
+//
+//	SimpleProfiler
+//
+
+class SimpleProfiler {
+
+	// ------------------------------------------------------------------------
+
+	public String m_Names[] = new String[ 32 ];
+
+	public long m_Times[] = new long [ 32 ];
+	
+	public int m_ActiveEntries;
+	
+	// ------------------------------------------------------------------------
+	
+	public void Reset() {
+	
+		for ( int i = 0; i < m_ActiveEntries; i++ ) {
+		
+			m_Names[ i ] = null;
+		
+		}
+	
+		m_ActiveEntries = 0;
+	
+	}
+	
+	public int Start( String name ) {
+	
+		if ( m_Times.length <= m_ActiveEntries ) return -1;
+		
+		m_Names[ m_ActiveEntries ] = name;
+		m_Times[ m_ActiveEntries ] = System.currentTimeMillis();
+		
+		++m_ActiveEntries;
+		
+		return m_ActiveEntries - 1;
+	
+	}
+	
+	public void End( int id ) {
+	
+		if ( (-1 == id) || (m_Times.length <= id) ) return;
+		
+		m_Times[ id ] = System.currentTimeMillis() - m_Times[ id ];
+	
+	}
+
+} // SimpleProfiler
+
+#endif // defined(BPT_USE_SIMPLE_PROFILER)
+

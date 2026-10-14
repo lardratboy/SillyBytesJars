@@ -1,0 +1,100 @@
+// =============================================================================
+//	Copyright (c) 2003, SILLY BYTES, LLC
+//	All rights reserved, unauthorized reproduction prohibited
+// =============================================================================
+
+#include "cross_language.h"
+#include "project.h"
+
+// =============================================================================
+
+#if defined(USE_SEPERATE_OPTIONS_MENU)
+
+// -----------------------------------------------------------------------------
+
+import javax.microedition.lcdui.*;
+
+// -----------------------------------------------------------------------------
+
+//
+//	OptionsMenu
+//
+
+public class OptionsMenu extends List implements CommandListener {
+
+	private Displayable backDisplay;
+
+	private Command cmdBack;
+	
+	private PROJECT_NAME midlet;
+	
+	int idxVolume;
+	
+	int idxVibration;
+	
+	int idxBacklight;
+
+	// --------------------------------------------------------------------
+
+	public OptionsMenu( PROJECT_NAME midlet, Displayable backDisplay ) {
+	
+		super( midlet.LoadString( "Options" ), List.IMPLICIT );
+		
+		this.midlet = midlet;
+	
+		this.backDisplay = backDisplay;
+		
+		cmdBack = new Command( midlet.LoadString( "Back" ), Command.BACK, 1 );
+		
+		addCommand( cmdBack );
+		
+		// ----------------------------------------------------------------
+		
+		idxVolume = append( midlet.LoadString( "Volume..." ), null );
+		
+		idxVibration = append( midlet.LoadString( "Vibration..." ), null );
+		
+		idxBacklight = append( midlet.LoadString( "Backlight..." ), null );
+	
+		// ----------------------------------------------------------------
+		
+		setCommandListener( this );
+		
+	}
+
+	public void commandAction( Command c, Displayable s ) {
+	
+		Display display = Display.getDisplay( midlet );
+	
+		if ( c.equals( cmdBack ) ) {
+		
+			display.setCurrent( backDisplay );
+		
+		} else {
+		
+			int index = getSelectedIndex();
+			
+			if ( -1 == index ) return;
+			
+			if ( index == idxVolume ) {
+			
+				// set the volume
+			
+			} else if ( index == idxVibration ) {
+			
+				// set the vibration level
+				
+			} else if ( index == idxBacklight ) {
+			
+				// set the backlight level
+				
+			}
+			
+		}
+	
+	}
+	
+} // OptionsMenu
+
+#endif // defined(USE_SEPERATE_OPTIONS_MENU)
+

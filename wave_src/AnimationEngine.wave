@@ -1,0 +1,1548 @@
+// =============================================================================
+//	Copyright (c) 2003, SILLY BYTES, LLC
+//	All rights reserved, unauthorized reproduction prohibited
+// =============================================================================
+
+#include "cross_language.h"
+#include "project.h"
+
+// =============================================================================
+
+#if defined(NOKIA_UI_API_SPECIFIC_BUILD)
+//#define USE_NOKIA
+#endif // defined(NOKIA_UI_API_SPECIFIC_BUILD)
+
+//#define GAME_SIMPLE_CLIPPING
+//#define ONLY_DRAW_RECTS
+//#define RENDER_NOTHING
+#define DRAW_EXTERNAL_RECTS_TO_HIDE_OVERDRAW
+//#define REPORT_FRAME_TIME
+//#define REPORT_INTERNAL_FRAME_COUNTER
+
+// -----------------------------------------------------------------------------
+
+#include "GameInternals.h"
+
+// ----------------------------------------------------------------------------
+// file format variations
+// ----------------------------------------------------------------------------
+
+//#define RECTS_FILE_CONTAINS_EDGE_INDICES
+
+// ----------------------------------------------------------------------------
+
+#if 1
+
+#define DBUG_DUMP_MEMORY( MSG_TXT )		/* nop */
+
+#else
+
+#define DBUG_DUMP_MEMORY( MSG_TXT ) \
+	System.gc(); \
+	System.out.println( MSG_TXT + ": free (" + Runtime.getRuntime().freeMemory() + "/" + Runtime.getRuntime().totalMemory() + ")" );
+	
+#endif
+
+// ----------------------------------------------------------------------------
+
+#define DBUG_TRACE_LOAD( XXX )		/* nop */
+//#define DBUG_TRACE_LOAD( XXX )		System.out.println( XXX );
+
+// ----------------------------------------------------------------------------
+
+#if defined(USE_NOKIA)
+import com.nokia.mid.ui.*;
+#endif
+
+// ----------------------------------------------------------------------------
+
+import javax.microedition.lcdui.*;
+
+// ----------------------------------------------------------------------------
+
+class AnimationEngine {
+
+#if defined(REPORT_INTERNAL_FRAME_COUNTER)
+	int dbug_FrameCounter;
+#endif
+
+	// ========================================================================
+	// animation data
+	// ========================================================================
+	
+	//
+	//	LAYERS_DATABASE
+	//
+
+	static private class LAYERS_DATABASE {
+	
+		short visualIndex[];
+		byte flags_8[];
+		byte dx[];
+		byte dy[];
+		
+		// Need to make the layers database have start indices for the 
+		// different frame starts. (*1)
+
+	} // LAYERS_DATABASE;
+
+	//
+	//	ANIM
+	//
+
+	static private class ANIM {
+
+		LAYERS_DATABASE layersDatabase;
+		
+		// should replace these with start indices into other tables. (*1)
+		
+		short frame_StartIndex[];
+		byte frame_LayerCount[];
+		
+		// what about these?
+		
+		byte on_bits[];
+		byte off_bits[];
+		
+		// what about > 127 frame animations
+
+		byte last_frame;
+
+	} // ANIM;
+
+	// ========================================================================
+	// internal	types
+	// ========================================================================
+
+	//
+	//	ANIM_STATE
+	//
+	
+#if defined(USE_ANIM_STATE_CLASS)
+
+	static public class	ANIM_STATE {
+
+		short animation;
+
+		short frame;
+		
+		byte conditions_8;
+
+	} // ANIM_STATE
+	
+#endif
+
+	// ========================================================================
+	// ========================================================================
+	
+	private ANIM animationsTable[];	
+	
+	// ------------------------------------------------------------------------
+	
+	private	Image offscreen_Surface;
+	
+	// ------------------------------------------------------------------------
+	
+	private int canvasWidth;
+	private int canvasHeight;
+	private int gameWidth;
+	private int gameHeight;
+
+	private int center_display_x_offset;
+	private int center_display_y_offset;
+
+	// ------------------------------------------------------------------------
+	
+	private short scoreboardDisplayOffset;
+		
+	// ------------------------------------------------------------------------
+	
+	private boolean bg_bDrawCheckers;
+	
+	private short bg_even_color_r;
+	private short bg_even_color_g;
+	private short bg_even_color_b;
+	
+	private short bg_odd_color_r;
+	private short bg_odd_color_g;
+	private short bg_odd_color_b;
+	
+	// ------------------------------------------------------------------------
+	
+	private	Graphics lcdui_G;
+	private Image bg_Surface;
+	private	Graphics bg_lcdui_G;
+		
+	// ------------------------------------------------------------------------
+	
+	private String visualsImageURL;	
+	private Image packedVisualsImage;
+	private short packedVisualsWidth;
+	private short packedVisualsHeight;
+	
+	// ========================================================================
+	// PSEUDO STRUCTURE
+	// ========================================================================
+	
+	static private class IMAGES_INFO {
+	
+		short x[];
+		short y[];
+		byte w[];
+		byte h[];
+	
+	} // IMAGES_INFO
+	
+	private IMAGES_INFO imageInfo;
+
+	// ========================================================================
+	// ========================================================================
+	
+	// ------------------------------------------------------------------------
+	// nokia specific
+	// ------------------------------------------------------------------------
+	
+#if defined(USE_NOKIA)
+
+	private DirectGraphics nokia_G;
+	private DirectGraphics bg_nokia_G;
+	
+#endif // defined(USE_NOKIA)
+	
+	// ------------------------------------------------------------------------
+	
+	//
+	//	LoadAnimationData()
+	//
+	
+	private boolean LoadAnimationData( String filename, boolean bUseHttp )
+	{
+		CFileReader inFile = null;
+
+		try {
+	
+			// ----------------------------------------------------------------
+			
+			inFile = new CFileReader();
+			
+			if ( !inFile.Open( filename, bUseHttp ) ) {
+			
+				inFile = null;
+				return false;
+		
+			}
+			
+			int chunkSize = inFile.Read_16();
+			
+			// ----------------------------------------------------------------
+			
+			inFile.Read_Validate_DECAFBAD();
+				
+			// ----------------------------------------------------------------
+			// okay let's have some fun
+			// ----------------------------------------------------------------
+			
+			gameWidth = inFile.Read_Flexible_16();
+			gameHeight = inFile.Read_Flexible_16();
+			scoreboardDisplayOffset = inFile.Read_Flexible_16();
+			
+#if 0			
+			short heightFudgeFactor = 8;
+			gameHeight += heightFudgeFactor;
+			scoreboardDisplayOffset += fudgeFactor;
+#endif
+			
+			int even_r = (int)inFile.ReadByte();
+			int even_g = (int)inFile.ReadByte();
+			int even_b = (int)inFile.ReadByte();
+			
+			int odd_r = (int)inFile.ReadByte();
+			int odd_g = (int)inFile.ReadByte();
+			int odd_b = (int)inFile.ReadByte();
+			
+			SetBGColor( even_r, even_g, even_b, odd_r, odd_g, odd_b );
+			
+DBUG_TRACE_LOAD( "gameWidth = " + gameWidth )
+DBUG_TRACE_LOAD( "gameHeight = " + gameHeight )
+DBUG_TRACE_LOAD( "scoreboardDisplayOffset = " + scoreboardDisplayOffset )
+
+			// ----------------------------------------------------------------
+			// okay let's have some fun
+			// ----------------------------------------------------------------
+			
+			short animationCount = inFile.Read_Flexible_16();
+			
+DBUG_TRACE_LOAD( "animationCount = " + animationCount )
+
+			animationsTable	= new ANIM[	animationCount ];
+
+			for	( int i	= 0; i < animationCount; i++ ) {
+			
+				ANIM anim = new ANIM();
+
+				animationsTable[ i ] = anim;
+				
+DBUG_TRACE_LOAD( "Animation " + i )
+				
+				// read in the conditions table
+				// ------------------------------------------------------------
+				
+				int conditionsCount = inFile.ReadByte();
+				
+				if ( 0 < conditionsCount ) {
+				
+DBUG_TRACE_LOAD( "\tConditions count " + conditionsCount )
+
+					anim.on_bits = new byte [ conditionsCount ];
+					
+					anim.off_bits = new byte [ conditionsCount ];
+				
+					for ( int index = 0; index < conditionsCount; index++ ) {
+					
+						anim.on_bits[ index ] = (byte)inFile.ReadByte();
+						
+						anim.off_bits[ index ] = (byte)inFile.ReadByte();
+					
+					}
+					
+				}
+
+				// read the layer table
+				// ------------------------------------------------------------
+				
+				int layerTableSize = inFile.Read_16();
+				
+DBUG_TRACE_LOAD( "\tanimation layer table size " + layerTableSize )
+			
+				inFile.Read_Validate_16( (short)0xDEAD );
+				
+				// ------------------------------------------------------------
+				
+				anim.layersDatabase = new LAYERS_DATABASE();
+			
+				anim.layersDatabase.visualIndex = new short [ layerTableSize ];
+				anim.layersDatabase.flags_8 = new byte [ layerTableSize ];
+				anim.layersDatabase.dx = new byte [ layerTableSize ];
+				anim.layersDatabase.dy = new byte [ layerTableSize ];
+				
+				// ------------------------------------------------------------
+				
+				for ( int j = 0; j < layerTableSize; j++ ) {
+				
+					anim.layersDatabase.visualIndex[j] = inFile.Read_Flexible_16();
+					anim.layersDatabase.flags_8[j] = (byte)inFile.ReadByte();
+					anim.layersDatabase.dx[j] = (byte)(inFile.ReadByte() - 128);
+					anim.layersDatabase.dy[j] = (byte)(inFile.ReadByte() - 128);
+					
+				}
+						
+				// ------------------------------------------------------------
+				
+				inFile.Read_Validate_16( (short)0xBEEF );
+				
+				// read the frame index/counts
+				// -------------------------------------------------------------
+				
+				int frameCount = inFile.Read_Flexible_16();
+				
+DBUG_TRACE_LOAD( "\tanimation frame count " + frameCount )
+
+				inFile.Read_Validate_16( (short)0xDEAD );
+				
+				// ------------------------------------------------------------
+				
+				anim.last_frame = (byte)(frameCount - 1);
+				
+				// ------------------------------------------------------------
+				
+				anim.frame_StartIndex = new short [ frameCount ];
+				anim.frame_LayerCount = new byte [ frameCount ];
+					
+				// ------------------------------------------------------------
+				
+				for ( int j = 0; j < frameCount; j++ ) {
+				
+					anim.frame_StartIndex[j] = inFile.Read_Flexible_16();
+					anim.frame_LayerCount[j] = (byte)inFile.ReadByte();
+					
+				}
+						
+				// ------------------------------------------------------------
+				
+				inFile.Read_Validate_16( (short)0xBEEF );
+				
+			}
+			
+		} catch ( Throwable e ) {
+		
+			REPORT_EXCEPTION_POLICY( e, EXCEPTION_LOADING_ANIMATION_FILE );
+		
+			return false;
+			
+		} finally {
+		
+			if ( null != inFile ) {
+			
+				inFile.Close();
+				inFile = null;
+			
+			}
+		}
+		
+		// ----------------------------------------------------------------
+		// ----------------------------------------------------------------
+		
+DBUG_TRACE_LOAD( "animations loaded!" )
+		
+		return true;
+	}
+
+	// ------------------------------------------------------------------------
+
+	//
+	//	LoadImageInfo()
+	//
+	
+	private boolean LoadImageInfo( String filename, boolean bUseHttp )
+	{
+		CFileReader inFile = null;
+		
+		try {
+	
+			inFile = new CFileReader();
+			
+			if ( !inFile.Open( filename, bUseHttp ) ) {
+			
+				inFile = null;
+				return false;
+		
+			}
+			
+			int chunkSize = inFile.Read_16();
+			
+			// --------------------------------------------------------------------
+			
+			inFile.Read_Validate_DECAFBAD();
+				
+			// --------------------------------------------------------------------
+			// okay let's have some fun
+			// --------------------------------------------------------------------
+			
+			short imageCount = inFile.Read_16();
+			
+			imageInfo = new IMAGES_INFO();
+			
+			imageInfo.x = new short [ imageCount ];
+			imageInfo.y = new short [ imageCount ];
+			imageInfo.w = new byte [ imageCount ];
+			imageInfo.h = new byte [ imageCount ];
+				
+DBUG_TRACE_LOAD( "imageCount = " + imageCount )
+
+			inFile.Read_Validate_16( (short)0xDEAD );
+			
+			// --------------------------------------------------------------------
+			
+			for	( int i	= 0; i < imageCount; i++ ) {
+			
+				imageInfo.x[ i ] = inFile.Read_Flexible_16();
+				imageInfo.y[ i ] = inFile.Read_Flexible_16();
+				
+				imageInfo.w[ i ] = (byte)inFile.ReadByte();
+				imageInfo.h[ i ] = (byte)inFile.ReadByte();
+				
+#if defined(RECTS_FILE_CONTAINS_EDGE_INDICES)
+				
+				int edgeIndex = inFile.Read_16(); // currently ignored.
+				
+#endif // defined(RECTS_FILE_CONTAINS_EDGE_INDICES)
+			
+			}
+
+			// --------------------------------------------------------------------
+			
+			inFile.Read_Validate_16( (short)0xBEEF );
+			
+		} catch ( Throwable e ) {
+		
+			REPORT_EXCEPTION_POLICY( e, EXCEPTION_LOADING_RECTS_FILE );
+		
+			return false;
+			
+		} finally {
+		
+			if ( null != inFile ) {
+			
+				inFile.Close();
+				inFile = null;
+			
+			}
+		}
+		
+		// --------------------------------------------------------------------
+		
+DBUG_TRACE_LOAD( "image info loaded!" )
+		
+		return true;
+	}
+	
+	// ------------------------------------------------------------------------
+	
+	//
+	//	Load()
+	//
+
+	public boolean Load(
+		String basename
+		,boolean bUseHttp
+	)
+	{
+		// --------------------------------------------------------------------
+		
+		visualsImageURL = basename + ".png";
+		
+		// --------------------------------------------------------------------
+		
+		DBUG_DUMP_MEMORY( "Before .animation data load" )
+		
+		if ( !LoadAnimationData( basename + ".animation", bUseHttp ) ) {
+		
+			return false;
+		
+		}
+		
+		DBUG_DUMP_MEMORY( "After .animation data load" )
+
+		// --------------------------------------------------------------------
+		
+		DBUG_DUMP_MEMORY( "Before .rects data load" )
+		
+		if ( !LoadImageInfo( basename + ".rects", bUseHttp ) ) {
+		
+			return false;
+		
+		}
+		
+		DBUG_DUMP_MEMORY( "After .rects data load" )
+		
+		// --------------------------------------------------------------------
+		
+		return true;
+	}
+	
+	// ------------------------------------------------------------------------
+	
+	//
+	//	AdvanceAnimationState()
+	//
+
+#if defined(USE_ANIM_STATE_CLASS)
+
+	public boolean AdvanceAnimationState( ANIM_STATE animState ) {
+	
+		if ( 0 >= animState.animation ) return false;
+
+		ANIM anim =	animationsTable[ (animState.animation - 1) ];
+
+		if ( ++animState.frame > anim.last_frame ) {
+		
+			animState.frame	= 0;
+
+			return true;
+
+		}
+
+		return false;
+	}
+	
+#else
+
+	public byte LastFrame( int animation ) {
+	
+		if ( 0 >= animation ) return 0;
+		
+		return animationsTable[ animation - 1 ].last_frame;
+	
+	}
+
+#endif // defined(USE_ANIM_STATE_CLASS)
+
+	// ------------------------------------------------------------------------
+	
+#define LAYER_FX_HFLIP				0x01
+#define LAYER_FX_VFLIP				0x02
+#define LAYER_FX_ROTATE90			0x04
+#define LAYER_FX_CONDITION_MASK		0x78
+#define LAYER_FX_TRANSFORM_MASK		0x07
+
+	// ------------------------------------------------------------------------
+	
+	//
+	//	CLIP_RECTANGLE
+	//
+	
+	static public class	CLIP_RECTANGLE {
+	
+		public int left;
+		public int top;
+		public int right;
+		public int bottom;
+		
+	} // CLIP_RECTANGLE
+	
+	// ------------------------------------------------------------------------
+
+	//
+	//	Render()
+	//
+	
+	public void	Render(
+		int animation
+		,int frame
+		,byte condition_8
+		,int x
+		,int y
+		,boolean bBackground
+		,CLIP_RECTANGLE optionalClippingRect
+	) /* throws Exception */
+	{
+		if ( 0 >= animation ) {
+		
+			return; // 0 is the empty animation
+			
+		}
+		
+		--animation;
+		
+		// --------------------------------------------------------------------
+		
+#if 0
+		
+		if ( animation >= animationsTable.length ) throw new Exception( "animation bounds" );
+				
+		if ( frame > animationsTable[ animation ].last_frame ) {
+
+			throw new Exception( "anim " + animation + "frame " + frame + " out of range [0 to " + animationsTable[ animation ].last_frame + "]" );
+			
+		}
+		
+#endif
+
+		// figure out destination of the renderer
+		// --------------------------------------------------------------------
+		
+#if defined(USE_NOKIA)
+		DirectGraphics use_nokia_G;
+#endif
+
+		Graphics use_lcdui_G;
+		
+		if ( bBackground ) {
+		
+#if defined(USE_NOKIA)
+			use_nokia_G = bg_nokia_G;
+#endif
+
+			use_lcdui_G = bg_lcdui_G;
+		
+		} else {
+		
+#if defined(USE_NOKIA)
+			use_nokia_G = nokia_G;
+#endif
+
+			use_lcdui_G = lcdui_G;
+			
+		}
+
+		// okay get the count and
+		// --------------------------------------------------------------------
+		
+		int layerCount = animationsTable[ animation ].frame_LayerCount[ frame ];
+		
+		if ( 0 >= layerCount ) return; // empty frame bail out now
+		
+		int layerIndex = animationsTable[ animation ].frame_StartIndex[ frame ];
+		
+		// make local references to the arrays to shorten typing inside loop
+		// --------------------------------------------------------------------
+		
+		short visualIndex_Table[] = animationsTable[ animation ].layersDatabase.visualIndex;
+		byte dx_Table[] = animationsTable[ animation ].layersDatabase.dx;
+		byte dy_Table[] = animationsTable[ animation ].layersDatabase.dy;
+		byte flags_8_Table[] = animationsTable[ animation ].layersDatabase.flags_8;
+		
+		// --------------------------------------------------------------------
+		
+		int conditionIndex, imageIndex, rx, ry, iw, ih;
+		
+		byte flags_8, on_bits, off_bits;
+		
+#if !defined(GAME_SIMPLE_CLIPPING)
+
+		int orx, ory, x2, y2, clip_top, clip_bottom;
+		
+		if ( null != optionalClippingRect ) {
+		
+			clip_top = optionalClippingRect.top + scoreboardDisplayOffset;
+			
+			clip_bottom = optionalClippingRect.bottom + scoreboardDisplayOffset;			
+		
+		} else {
+		
+			clip_top = 0;
+			
+			clip_bottom = 0;
+		
+		}
+		
+#endif // GAME_SIMPLE_CLIPPING
+
+		// --------------------------------------------------------------------
+
+		for ( int i = 0; i < layerCount; i++, layerIndex++ ) {
+
+			// determine visibility (via the on & off bit masks)
+			// ----------------------------------------------------------------
+
+			flags_8 = flags_8_Table[ layerIndex ];
+			
+			conditionIndex = ((flags_8 >> 3) & 0x0F);
+			
+			if ( 0 != conditionIndex ) {
+			
+				--conditionIndex;
+				
+				on_bits = animationsTable[ animation ].on_bits[ conditionIndex ];
+				off_bits = animationsTable[ animation ].off_bits[ conditionIndex ];
+
+				if ( on_bits != (condition_8 & on_bits) ) continue;
+				if ( 0 != (condition_8 & off_bits) ) continue;
+			
+			}
+		
+			// ----------------------------------------------------------------
+			
+			imageIndex = visualIndex_Table[ layerIndex ];
+			
+#if defined(GAME_SIMPLE_CLIPPING)
+
+			rx = x + ((int)dx_Table[ layerIndex ]);
+			ry = y + ((int)dy_Table[ layerIndex ]) + scoreboardDisplayOffset;
+			
+			iw = imageInfo.w[ imageIndex ];
+			ih = imageInfo.h[ imageIndex ];
+			
+#else
+
+			orx = x + ((int)dx_Table[ layerIndex ]);
+			ory = y + ((int)dy_Table[ layerIndex ]) + scoreboardDisplayOffset;
+			
+			rx = orx;
+			ry = ory;
+			
+			iw = imageInfo.w[ imageIndex ];
+			ih = imageInfo.h[ imageIndex ];
+			
+			if ( null != optionalClippingRect ) {
+			
+				// ------------------------------------------------------------
+				
+				if ( optionalClippingRect.left > rx ) {
+				
+					iw += rx - optionalClippingRect.left;
+					
+					rx = optionalClippingRect.left;
+					
+				}
+				
+				x2 = (rx + iw);
+				
+				if ( optionalClippingRect.right < x2 ) {
+				
+					iw += optionalClippingRect.right - x2;
+				
+				}
+				
+				if ( 0 >= iw ) continue;
+				
+				// ------------------------------------------------------------
+
+				if ( clip_top > ry ) {
+				
+					ih += ry - clip_top;
+					
+					ry = clip_top;
+					
+				}
+				
+				y2 = (ry + ih);
+				
+				if ( clip_bottom < y2 ) {
+				
+					ih += clip_bottom - y2;
+				
+				}
+				
+				if ( 0 >= ih ) continue;
+				
+			}
+			
+#endif
+			
+			// ----------------------------------------------------------------
+			
+#if defined(ONLY_DRAW_RECTS)
+
+#if !defined(RENDER_NOTHING)
+			use_lcdui_G.setColor( 0, 0, 0 );
+			use_lcdui_G.fillRect( rx, ry, iw, ih );
+			use_lcdui_G.setColor( 255, 0, 255 );
+			use_lcdui_G.fillRect( rx + 1, ry + 1, iw - 2, ih - 2 );
+#endif // !defined(RENDER_NOTHING)
+
+#else
+
+			use_lcdui_G.setClip( rx, ry, iw, ih );
+			
+			if ( 0 == (flags_8 & LAYER_FX_TRANSFORM_MASK) ) {
+			
+#if defined(GAME_SIMPLE_CLIPPING)
+
+				rx -= imageInfo.x[ imageIndex ];
+				ry -= imageInfo.y[ imageIndex ];
+				
+#else
+
+				rx = (rx - imageInfo.x[ imageIndex ]) + (orx - rx);
+				ry = (ry - imageInfo.y[ imageIndex ]) + (ory - ry);
+				
+#endif
+			
+#if !defined(RENDER_NOTHING)
+#if defined(USE_NOKIA)
+				use_nokia_G.drawImage( packedVisualsImage, rx, ry, Graphics.TOP | Graphics.LEFT, 0 );
+#else
+				use_lcdui_G.drawImage( packedVisualsImage, rx, ry, Graphics.TOP | Graphics.LEFT );
+#endif
+#endif // !defined(RENDER_NOTHING)
+
+				
+			} else {
+			
+#if defined(USE_NOKIA)
+
+				// map the incomming flags to the nokia manipulation flags
+				
+				int nokiaFlags = 0;
+				
+				if ( 0 == (LAYER_FX_HFLIP & flags_8) ) {
+				
+					rx -= imageInfo.x[ imageIndex ];
+					
+				} else {
+				
+					rx -= (packedVisualsWidth - imageInfo.w[ imageIndex ] - imageInfo.x[ imageIndex ]);
+				
+					nokiaFlags |= DirectGraphics.FLIP_HORIZONTAL;
+					
+				}
+				
+				if ( 0 == (LAYER_FX_VFLIP & flags_8) ) {
+				
+					ry -= imageInfo.y[ imageIndex ];
+					
+				} else {
+				
+					ry -= (packedVisualsHeight - imageInfo.h[ imageIndex ] - imageInfo.y[ imageIndex ]);
+					
+					nokiaFlags |= DirectGraphics.FLIP_VERTICAL;
+					
+				}
+
+#if !defined(RENDER_NOTHING)
+
+				use_nokia_G.drawImage(
+					packedVisualsImage
+					,rx
+					,ry
+					,Graphics.TOP | Graphics.LEFT
+					,nokiaFlags
+				);
+				
+#endif // !defined(RENDER_NOTHING)
+				
+#else
+
+#if !defined(RENDER_NOTHING)
+
+				use_lcdui_G.setColor( 255, 0, 255 );
+				use_lcdui_G.fillRect( rx, ry, iw, ih );
+				use_lcdui_G.setColor( 0, 0, 0 );
+				use_lcdui_G.drawRect( rx, ry, imageInfo.w[ imageIndex ] - 1, imageInfo.h[ imageIndex ] - 1 );
+				
+#endif // !defined(RENDER_NOTHING)
+				
+				
+#endif
+				
+			}
+			
+#endif // defined(ONLY_DRAW_RECTS)
+
+		}
+
+	}
+	
+	// ------------------------------------------------------------------------
+	
+	//
+	//	RenderDigitsAnimationNumber()
+	//
+
+#if defined(IMPLEMENT_CLASS_VALUES) // class value added (8/31/03)
+
+	public void RenderDigitsAnimationNumber(
+		int animation
+		,int value
+		,int x
+		,int y
+		,boolean bBackground
+		,CLIP_RECTANGLE optionalClippingRect
+		,boolean bZeroPad
+	) {
+	
+		try {
+		
+			String str = Integer.toString( value );
+		
+			int strlen = str.length();
+			
+			byte condition_8 = 1;
+			
+			for ( int count = strlen; 0 <= --count; ) {
+			
+				Render(
+					animation
+					,(int)(str.charAt( count ) - '0')
+					,condition_8
+					,x
+					,y
+					,bBackground
+					,optionalClippingRect
+				);
+				
+				condition_8 <<= 1;
+
+			}
+			
+			if ( bZeroPad ) {
+			
+				for ( int i = strlen; i < 7; i++ ) {
+				
+					Render(
+						animation
+						,0
+						,condition_8
+						,x
+						,y
+						,bBackground
+						,optionalClippingRect
+					);
+					
+					condition_8 <<= 1;
+					
+				}
+			
+			}
+			
+		} catch ( Throwable e ) {
+		
+			REPORT_EXCEPTION_POLICY( e, EXCEPTION_DRAW_DIGIT_ANIMATION_NUMBER );
+		
+		}
+	
+	}
+
+#endif // defined(IMPLEMENT_CLASS_VALUES) // class value added (8/31/03)
+
+	// ------------------------------------------------------------------------
+	
+	//
+	//	SetBGColor()
+	//
+	
+	public void SetBGColor( int even_r, int even_g, int even_b, int odd_r, int odd_g, int odd_b ) {
+	
+		// --------------------------------------------------------------------
+		
+		bg_even_color_r = (short)even_r;
+		
+		bg_even_color_g = (short)even_g;
+		
+		bg_even_color_b = (short)even_b;
+		
+		// --------------------------------------------------------------------
+	
+		bg_odd_color_r = (short)odd_r;
+		
+		bg_odd_color_g = (short)odd_g;
+		
+		bg_odd_color_b = (short)odd_b;
+	
+		// --------------------------------------------------------------------
+		
+		bg_bDrawCheckers = 
+			!(
+				(bg_even_color_r == bg_odd_color_r)
+			&&	(bg_even_color_g == bg_odd_color_g)
+			&&	(bg_even_color_b == bg_odd_color_b)
+			);
+	
+		// --------------------------------------------------------------------
+		
+DBUG_TRACE_LOAD( "bg_even_color_r = " + bg_even_color_r )
+DBUG_TRACE_LOAD( "bg_even_color_g = " + bg_even_color_g )
+DBUG_TRACE_LOAD( "bg_even_color_n = " + bg_even_color_b )
+			
+DBUG_TRACE_LOAD( "bg_odd_color_r = " + bg_odd_color_r )
+DBUG_TRACE_LOAD( "bg_odd_color_g = " + bg_odd_color_g )
+DBUG_TRACE_LOAD( "bg_odd_color_n = " + bg_odd_color_b )
+			
+	}
+	
+	// ------------------------------------------------------------------------
+	
+	//
+	//	RemoveCanvas()
+	//
+	
+	public void RemoveCanvas( Canvas canvas ) {
+	
+		DBUG_DUMP_MEMORY( "Start of RemoveCanvas()" )
+		
+		// --------------------------------------------------------------------
+		
+#if defined(USE_NOKIA)
+
+		bg_nokia_G = null;
+		nokia_G = null;
+		
+#endif
+
+		bg_lcdui_G = null; 
+		bg_Surface = null;
+		lcdui_G = null;
+		offscreen_Surface = null;
+		
+		// --------------------------------------------------------------------
+		
+		packedVisualsImage = null;
+		
+		// --------------------------------------------------------------------
+		
+		System.gc();
+		
+		DBUG_DUMP_MEMORY( "End of RemoveCanvas()" )
+		
+	}
+
+	//
+	//	SetCanvas
+	//
+	
+	public boolean SetCanvas( Canvas canvas ) {
+	
+		// --------------------------------------------------------------------
+		
+		try {
+		
+			DBUG_DUMP_MEMORY( "Before composite image load" )
+			
+			packedVisualsImage = Image.createImage( visualsImageURL );
+			
+			packedVisualsWidth = (short)packedVisualsImage.getWidth();
+			
+			packedVisualsHeight = (short)packedVisualsImage.getHeight();
+			
+			DBUG_DUMP_MEMORY( "After composite image load" )
+		
+		} catch ( Throwable e ) {
+		
+			REPORT_EXCEPTION_POLICY( e, EXCEPTION_SET_CANVAS );
+
+			return false;
+		
+		}
+		
+		// --------------------------------------------------------------------
+		
+		canvasWidth = canvas.getWidth();
+		canvasHeight = canvas.getHeight();
+
+		// setup the background surface
+		// --------------------------------------------------------------------
+		
+		DBUG_DUMP_MEMORY( "Before BG image creation" )
+		
+		bg_Surface = Image.createImage( gameWidth, gameHeight );
+		
+		bg_lcdui_G = bg_Surface.getGraphics();
+		
+#if defined(USE_NOKIA)
+		bg_nokia_G = DirectUtils.getDirectGraphics( bg_lcdui_G );
+#endif
+		
+		DBUG_DUMP_MEMORY( "After BG image creation" )
+		
+		// --------------------------------------------------------------------
+		
+		center_display_x_offset = (canvasWidth - gameWidth) >> 1;
+		center_display_y_offset = (canvasHeight - gameHeight) >> 1;
+
+		if ( !canvas.isDoubleBuffered() ) {
+		
+			// do the offscreen thing	
+			// ----------------------------------------------------------------
+			
+			DBUG_DUMP_MEMORY( "Before offscreen image creation" )
+		
+			int osw = (canvasWidth > gameWidth) ? gameWidth : canvasWidth;
+			int osh = (canvasHeight > gameHeight) ? gameHeight : canvasHeight;
+
+			offscreen_Surface = Image.createImage( osw, osh );
+			
+			lcdui_G = offscreen_Surface.getGraphics();
+
+			// ----------------------------------------------------------------
+			
+#if defined(USE_NOKIA)
+
+			nokia_G = DirectUtils.getDirectGraphics( lcdui_G );
+			
+#endif
+			
+			DBUG_DUMP_MEMORY( "After offscreen image creation" )
+			
+		}
+		
+		return true;
+	
+	}
+	
+	// ------------------------------------------------------------------------
+	
+	//
+	//	ClearBackground()
+	//
+	
+	public void ClearBackground() {
+	
+#if !defined(RENDER_NOTHING)
+	
+		bg_lcdui_G.setClip( 0, 0, gameWidth, gameHeight );
+		bg_lcdui_G.setColor( bg_even_color_r, bg_even_color_g, bg_even_color_b );
+		bg_lcdui_G.fillRect( 0, 0, gameWidth, gameHeight );
+		bg_lcdui_G.setColor( 0, 0, 0 );
+		
+#endif // !defined(RENDER_NOTHING)
+
+	}
+	
+	//
+	//	RenderBackgroundChecker()
+	//
+	
+	public void RenderBackgroundChecker(
+		int x
+		,int y
+		,int w
+		,int h
+		,boolean bOdd
+		,CLIP_RECTANGLE optionalClippingRect
+	) {
+	
+#if !defined(RENDER_NOTHING)
+
+		if ( null != optionalClippingRect ) {
+		
+			int right, bottom;
+			
+			if ( (right = (x + w)) > optionalClippingRect.right ) {
+			
+				if ( 0 >= (w -= (right - optionalClippingRect.right)) ) return;
+			
+			}
+			
+			if ( (bottom = (y + h)) > optionalClippingRect.bottom ) {
+			
+				if ( 0 >= (h -= (bottom - optionalClippingRect.top)) ) return;
+			
+			}
+			
+			if ( x < optionalClippingRect.left ) {
+			
+				if ( 0 >= (w -= (optionalClippingRect.left - x)) ) return;
+			
+				x = optionalClippingRect.left;
+				
+			}
+			
+			if ( y < optionalClippingRect.top ) {
+			
+				if ( 0 >= (h -= (optionalClippingRect.top - y)) ) return;
+				
+				y = optionalClippingRect.top;
+				
+			}
+			
+		}
+		
+		y += scoreboardDisplayOffset;
+		
+		bg_lcdui_G.setClip( x, y, w, h );
+		
+#if defined(ONLY_DRAW_RECTS)
+
+		bg_lcdui_G.setColor( 0, 0, 0 );
+		bg_lcdui_G.fillRect( x, y, w, h );
+		bg_lcdui_G.setColor( 255, 0, 255 );
+		bg_lcdui_G.fillRect( x + 1, y + 1, w - 2, h - 2 );
+
+#else
+
+		if ( bOdd ) {
+		
+			bg_lcdui_G.setColor( bg_odd_color_r, bg_odd_color_g, bg_odd_color_b );
+			
+		} else {
+		
+			bg_lcdui_G.setColor( bg_even_color_r, bg_even_color_g, bg_even_color_b );
+			
+		}
+		
+		bg_lcdui_G.fillRect( x, y, w, h );
+
+#endif // defined(ONLY_DRAW_RECTS)
+		
+#endif // !defined(RENDER_NOTHING)
+
+	}
+	
+	// ------------------------------------------------------------------------
+	
+	//
+	//	BeginPaint()
+	//
+
+	public void BeginPaint(
+		Graphics g
+		,int focus_x
+		,int focus_y
+		,int percentageIndicator
+	) {
+	
+		// determine our method
+		// --------------------------------------------------------------------
+		
+		if ( null == offscreen_Surface ) {
+		
+			lcdui_G = g;
+
+			// ----------------------------------------------------------------
+			
+#if defined(USE_NOKIA)
+
+			nokia_G = DirectUtils.getDirectGraphics( lcdui_G );
+			
+#endif
+
+			int x_translation;
+			
+			if ( canvasWidth < gameWidth ) {
+			
+				x_translation = (canvasWidth>>1) - focus_x;
+				
+				int x_min = canvasWidth - gameWidth;
+				
+				if ( x_min > x_translation ) x_translation = x_min;
+
+				int x_max = 0; // gameWidth - canvasWidth;
+				
+				if ( x_max < x_translation ) x_translation = x_max;
+			
+			} else {
+				
+				x_translation = center_display_x_offset;
+			
+			}
+			
+			int y_translation;
+			
+			if ( canvasHeight < gameHeight ) {
+			
+				y_translation = (canvasHeight>>1) - focus_y;
+			
+				int y_min = canvasHeight - gameHeight;
+				
+				if ( y_min > y_translation ) y_translation = y_min;
+
+				int y_max = 0; //gameHeight - canvasHeight;
+				
+				if ( y_max < y_translation ) y_translation = y_max;
+				
+			} else {
+			
+				y_translation = center_display_y_offset;
+			
+			}
+
+			lcdui_G.translate( x_translation, y_translation );
+				
+		} else {
+		
+			lcdui_G.setClip( 0, 0, gameWidth, gameHeight );
+			
+		}
+	
+		// erase everything?
+		// --------------------------------------------------------------------
+		
+#if defined(DRAW_EXTERNAL_RECTS_TO_HIDE_OVERDRAW) && (!defined(DRAW_EXTERNAL_RECTS_AFTER_EVERYTHING_ELSE))
+
+		RenderExternalClipRects( g );
+
+#endif // defined(DRAW_EXTERNAL_RECTS_TO_HIDE_OVERDRAW) && (!defined(DRAW_EXTERNAL_RECTS_AFTER_EVERYTHING_ELSE))
+
+		// start our rendering by drawing the background layer
+		// --------------------------------------------------------------------
+		
+#if !defined(RENDER_NOTHING)	
+		lcdui_G.drawImage(
+			bg_Surface
+			,0
+			,0
+			,Graphics.TOP | Graphics.LEFT
+		);
+#endif // !defined(RENDER_NOTHING)
+		
+		// check to see if we are counting down something
+		// --------------------------------------------------------------------
+		
+		if ( (0 != percentageIndicator) && (2 < scoreboardDisplayOffset) ) {
+		
+			int w = (gameWidth * percentageIndicator) >> 8;
+			
+			if ( 0 != w ) {
+			
+				int h = (scoreboardDisplayOffset - 2);
+
+				g.setClip( 0, 1, w, h );
+				
+				lcdui_G.setColor( 0, 0, 0 );
+				
+				lcdui_G.fillRect( 0, 1, w, h );
+				
+				if ( 0 < (w - 2) ) {
+				
+					lcdui_G.setColor(
+						127 + (percentageIndicator >> 1)
+						,0
+						,0
+					);
+
+					lcdui_G.fillRect( 1, 2, w - 2, h - 2 );
+					
+				}
+				
+			}
+		
+		}
+		
+	}
+	
+	// ------------------------------------------------------------------------
+	
+	//
+	//	RenderExternalClipRects()
+	//
+	
+#if defined(DRAW_EXTERNAL_RECTS_TO_HIDE_OVERDRAW)
+
+	private void RenderExternalClipRects( Graphics g ) {
+	
+		int xTranslation = g.getTranslateX();
+		
+		int yTranslation = g.getTranslateY();
+	
+		g.translate( -xTranslation, -yTranslation );
+		
+		g.setClip( 0, 0, canvasWidth, canvasHeight );
+		
+		{
+			int x = center_display_x_offset;
+			int y = center_display_y_offset;
+		
+			g.setColor( bg_even_color_r, bg_even_color_g, bg_even_color_b );
+
+			// ----------------------------------------------------------------
+			
+			if ( 0 < y ) {
+
+#if defined(J2ME_BASIC_BUILD)
+			
+				g.fillRect( 0, 0, canvasWidth, y + 1 );
+				
+#else
+
+				g.fillRect( 0, 0, canvasWidth, y );
+				
+#endif
+				
+			}
+			
+			// ----------------------------------------------------------------
+			
+			if ( 0 < x ) {
+			
+				g.fillRect( 0, y, x, gameHeight );
+				
+			}
+			
+			x += gameWidth;
+
+			if ( canvasWidth > x ) {
+			
+				g.fillRect( x, y, canvasWidth - x, gameHeight );
+				
+			}
+	
+			// ----------------------------------------------------------------
+			
+			y += gameHeight;
+			
+			if ( 0 < y ) {
+			
+				g.fillRect( 0, y, canvasWidth, canvasHeight - y );
+				
+			}
+			
+		}
+		
+		g.translate( xTranslation, yTranslation );
+		
+	}
+	
+#endif // defined(DRAW_EXTERNAL_RECTS_TO_HIDE_OVERDRAW)
+	
+	// ------------------------------------------------------------------------
+	
+	//
+	//	EndPaint()
+	//
+	
+	public void EndPaint(
+		Graphics g
+#if defined(BPT_USE_SIMPLE_PROFILER)
+		,SimpleProfiler profiler
+#endif
+	) {
+	
+		// --------------------------------------------------------------------
+		
+		if ( null == offscreen_Surface ) {
+		
+#if defined(USE_NOKIA)
+			nokia_G = null;
+#endif
+			
+			lcdui_G = null;
+			
+		} else {
+		
+#if !defined(RENDER_NOTHING)
+
+			g.drawImage(
+				offscreen_Surface
+				,center_display_x_offset
+				,center_display_y_offset
+				,Graphics.TOP | Graphics.LEFT
+			);
+			
+#endif // !defined(RENDER_NOTHING)
+			
+		}
+		
+		// --------------------------------------------------------------------
+		
+#if defined(DRAW_EXTERNAL_RECTS_TO_HIDE_OVERDRAW) && defined(DRAW_EXTERNAL_RECTS_AFTER_EVERYTHING_ELSE)
+
+		RenderExternalClipRects( g );
+
+#endif // defined(DRAW_EXTERNAL_RECTS_TO_HIDE_OVERDRAW) && defined(DRAW_EXTERNAL_RECTS_AFTER_EVERYTHING_ELSE)
+
+		// reverse any translation
+		// --------------------------------------------------------------------
+		
+		g.translate( -g.getTranslateX(), -g.getTranslateY() );
+		
+		// --------------------------------------------------------------------
+
+#if defined(REPORT_INTERNAL_FRAME_COUNTER)
+
+		g.setClip( 0, 0, canvasWidth, canvasHeight );
+		g.setColor( 255, 255, 255 );
+		g.fillRect( 0, 0, canvasWidth, 16 );
+		g.setColor( 0, 0, 0 );
+		
+		g.drawString(
+			":" + dbug_FrameCounter
+			,0
+			,0
+			,Graphics.TOP | Graphics.LEFT
+		);
+		
+		++dbug_FrameCounter;
+		
+#endif
+	
+#if defined(REPORT_FRAME_TIME)
+
+		g.setClip( 0, 0, canvasWidth, canvasHeight );
+//		g.setColor( 255, 255, 255 );
+//		g.fillRect( 0, 0, 48, canvasHeight );
+		g.setColor( 0, 0, 0 );
+		
+		g.drawString(
+			"(" + Runtime.getRuntime().freeMemory() + "/" + Runtime.getRuntime().totalMemory() + ")"
+			,0
+			,0
+			,Graphics.TOP | Graphics.LEFT
+		);
+		
+#if defined(BPT_USE_SIMPLE_PROFILER)
+		if ( null != profiler ) {
+		
+			int yPos = 12;
+		
+			for ( int i = 0; i < profiler.m_ActiveEntries; i++ ) {
+			
+				g.drawString(
+					profiler.m_Names[ i ] + ":" + profiler.m_Times[ i ]
+					,0
+					,yPos
+					,Graphics.TOP | Graphics.LEFT
+				);
+				
+				yPos += 12;
+				
+			}
+		
+		}
+#endif // defined(BPT_USE_SIMPLE_PROFILER)
+		
+#endif
+		
+	}
+	
+}

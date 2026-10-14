@@ -1,0 +1,298 @@
+// =============================================================================
+//	Copyright (c) 2003, SILLY BYTES, LLC
+//	All rights reserved, unauthorized reproduction prohibited
+// =============================================================================
+
+#include "cross_language.h"
+#include "project.h"
+
+// =============================================================================
+
+#include "GameInternals.h"
+
+// --------------------------------------------------------------------
+
+import java.io.*;
+import javax.microedition.io.*;
+
+// --------------------------------------------------------------------
+// --------------------------------------------------------------------
+
+//
+//	CFileReader
+//
+
+class CFileReader {
+
+	private InputStream m_InputStream;
+
+	// --------------------------------------------------------------------
+	
+	public boolean Open( String filename, boolean bUseHttp ) {
+	
+//System.out.println( "open:" + filename );				
+
+		try {
+		
+			if ( bUseHttp ) {
+			
+				InputConnection conn = (InputConnection) Connector.open( filename, Connector.READ );
+				
+				m_InputStream = conn.openInputStream();
+				
+				conn.close(); // doesn't close input stream!
+				
+			} else {
+			
+				Class t = Class.forName( "javax.microedition.midlet.MIDlet" );
+			
+				m_InputStream = t.getResourceAsStream( filename );
+			
+			}
+			
+		} catch( Throwable e ) {
+		
+			REPORT_EXCEPTION_POLICY( e, EXCEPTION_FILE_OPEN );
+	
+			Close();
+			
+		}
+		
+		return (null != m_InputStream);
+	}
+	
+	public void Close() {
+	
+		if ( null != m_InputStream ) {
+		
+			try {
+			
+				m_InputStream.close();
+				
+			} catch ( Throwable e ) {
+			
+				REPORT_EXCEPTION_POLICY( e, EXCEPTION_FILE_CLOSE );
+			
+			}
+			
+			m_InputStream = null;
+		
+		}
+	
+	}
+	
+	// --------------------------------------------------------------------
+	
+	public boolean IsOpen() {
+	
+		return (null == m_InputStream);
+	
+	}
+	
+	// --------------------------------------------------------------------
+	
+	public int ReadByte() {
+	
+		if ( null != m_InputStream ) {
+		
+			try {
+			
+				int value = m_InputStream.read();
+				
+				if ( 0 > value ) value += 255;
+				
+				return value & 0xff;
+				
+			} catch ( Throwable e ) {
+			
+				// probably should rethrow this?
+				
+				REPORT_EXCEPTION_POLICY( e, EXCEPTION_FILE_READ_BYTE );
+				
+				Close();
+		
+			}
+			
+		}
+		
+		return 0;	
+	}
+	
+   	public short Read_16() {
+
+   		int lo = ReadByte();
+   		int hi = ReadByte();
+   		
+   		short value = (short)(((int)hi << 8) | (int)lo);
+   		
+   		return value;
+
+   	}
+
+   	public int Read_32() {
+
+   		int d = ReadByte();
+   		int c = ReadByte();
+   		int b = ReadByte();
+   		int a = ReadByte();
+   		
+   		int value = (((int)a << 24) | ((int)b << 16) | ((int)c << 8) | (int)d);
+   		
+   		return value;
+   	}
+   	
+   	// ------------------------------------------------------------------------
+   	
+   	public short Read_Flexible_16() {
+   	
+   		int value = ReadByte();
+   		
+   		// --------------------------------------------------------------------
+   		
+   		if ( 0 == (0x80 & value) ) return (short)value;
+   		
+   		// --------------------------------------------------------------------
+   		
+   		if ( 0 == (0x40 & value) ) {
+   		
+   			return (short)(((value & 0x3F) << 8) | (ReadByte() & 0xFF));
+   		
+   		}
+   		
+   		// --------------------------------------------------------------------
+   		
+   		int lo = ReadByte();
+   		int hi = ReadByte();
+   		
+   		return (short)(((int)hi << 8) | (int)lo);
+   		
+  	}
+
+	// --------------------------------------------------------------------
+	
+	public void Read_Validate_16( short needValue ) throws IOException 
+	{
+		short value = Read_16();
+	
+		if ( needValue != value ) {
+		
+			throw new IOException( "v_16" );
+			
+		}
+	}
+	
+#if 0
+	
+	public void Read_Validate_32( int needValue ) throws IOException 
+	{
+		int value = Read_32();
+	
+		if ( needValue != value ) {
+		
+			throw new IOException( "v_32" );
+			
+		}
+	}
+	
+#endif
+	
+	public void Read_Validate_DECAFBAD() throws IOException 
+	{
+		int needValue = ((0xDE << 24) | (0xCA << 16) | (0xFB << 8) | 0xAD);
+	
+		int value = Read_32();
+	
+		if ( needValue != value ) {
+		
+			throw new IOException( "v_DECAFBAD" );
+			
+		}
+	}
+	
+	// --------------------------------------------------------------------
+	
+	public byte [] Read( int nCount )
+	{
+		if ( null != m_InputStream ) {
+		
+			try {
+			
+				byte array[] = new byte [ nCount ];
+			
+				int count = m_InputStream.read( array, 0, nCount );
+				
+				if ( count != nCount ) {
+				
+					// System.out.println( "FAILED: read[" + nCount + "] received " + count );
+					
+					array = null;
+				
+					return null;
+				
+				}
+				
+				return array;
+				
+			} catch ( Throwable e ) {
+			
+				REPORT_EXCEPTION_POLICY( e, EXCEPTION_FILE_READ_BYTE_ARRAY );
+			
+				Close();
+		
+			}
+			
+		}
+		
+		return null;	
+	
+	}
+	
+	// --------------------------------------------------------------------
+	
+	public String ReadString() {
+	
+		try {
+	
+			StringBuffer sb = new StringBuffer();
+			
+			int c;
+			
+			while ( -1 != (c = m_InputStream.read()) ) {
+			
+				sb.append( (char) c );
+			
+			}
+			
+			return sb.toString();
+			
+		} catch ( Throwable e ) {
+		
+			REPORT_EXCEPTION_POLICY( e, EXCEPTION_FILE_READ_STRING );
+			
+		}
+		
+		return "";
+	
+	}
+	
+	// --------------------------------------------------------------------
+	
+	public void Skip( int nCount )
+	{
+		try {
+		
+			m_InputStream.skip( nCount );
+			
+		} catch ( Throwable e ) {
+		
+			REPORT_EXCEPTION_POLICY( e, EXCEPTION_FILE_SKIP );
+			
+			Close();
+	
+		}
+	}
+	
+	// --------------------------------------------------------------------
+
+} // class CFileReader
+

@@ -1,0 +1,270 @@
+// =============================================================================
+//	Copyright (c) 2003, SILLY BYTES, LLC
+//	All rights reserved, unauthorized reproduction prohibited
+// =============================================================================
+
+#include "cross_language.h"
+#include "project.h"
+
+// =============================================================================
+
+#include "GameInternals.h"
+
+// -----------------------------------------------------------------------------
+
+#define USE_JAD_FOR_TRANSLATION_TABLE
+#define GO_DIRECTLY_TO_MAIN_CANVAS_AFTER_SPLASH
+
+// -----------------------------------------------------------------------------
+
+import javax.microedition.midlet.*;
+import javax.microedition.lcdui.*;
+
+// -----------------------------------------------------------------------------
+
+public class PROJECT_NAME extends MIDlet	{
+
+	// ------------------------------------------------------------------------
+	
+	public GameInternals gameInternals;
+
+#if 0
+	
+	PROJECT_NAME() {
+	
+		System.gc();
+		System.out.println( "Boot : free (" + Runtime.getRuntime().freeMemory() + "/" + Runtime.getRuntime().totalMemory() + ")" );
+		
+	}
+	
+#endif
+	
+	// ------------------------------------------------------------------------
+	
+// not storing the canvas directly saves about 60 bytes of jar space...
+#define ALWAYS_CREATE_CANVAS_OBJECT_INPLACE
+	
+#if defined(ALWAYS_CREATE_CANVAS_OBJECT_INPLACE)
+
+	#define CANVAS_FACTORY_POLICY()		new PuzzleCanvas( this, true )
+	
+#else // defined(ALWAYS_CREATE_CANVAS_OBJECT_INPLACE)
+
+	#define CANVAS_FACTORY_POLICY()		CanvasFactory()
+	
+	private Canvas gameCanvas;
+	
+	private Canvas CanvasFactory() {
+	
+		if ( null != gameCanvas ) return gameCanvas;
+		
+		gameCanvas = new PuzzleCanvas( this, true );
+		
+		return gameCanvas;
+	
+	}
+
+#endif // defined(ALWAYS_CREATE_CANVAS_OBJECT_INPLACE)
+	
+	// ------------------------------------------------------------------------
+	
+	private void unpauseApp() {
+		
+		Display.getDisplay(	this ).setCurrent( CANVAS_FACTORY_POLICY() );
+		
+	}
+	
+	// ------------------------------------------------------------------------
+
+	public /*protected*/ void startApp () {
+	
+		if ( null == gameInternals ) {
+		
+			Display.getDisplay(	this ).setCurrent( new splash( this ) );
+			
+		} else {
+		
+			unpauseApp();
+			
+		}
+
+	}
+
+	public /*protected*/ void pauseApp() {
+	
+		// make the current context the 'pause'
+	
+	}
+	
+	// ------------------------------------------------------------------------
+
+	public /*protected*/ void destroyApp(boolean unconditional) {
+
+		if ( null != gameInternals ) {
+		
+			gameInternals.Shutdown();
+		
+		}
+		
+		notifyDestroyed();
+
+	}
+
+	public void	exit() {
+	
+		destroyApp(	false );
+
+	}
+	
+	public void splashDone() {
+	
+		// bring up the main menu
+	
+#if defined(USE_SEPERATE_MAIN_MENU)
+
+		Display.getDisplay(	this ).setCurrent( new menu( this ) );
+		
+#else
+
+#if defined(GO_DIRECTLY_TO_MAIN_CANVAS_AFTER_SPLASH)
+
+		Display.getDisplay(	this ).setCurrent( CANVAS_FACTORY_POLICY() );
+		
+#else
+		
+		Display.getDisplay(	this ).setCurrent(
+			new PauseMenu(
+				this
+				,CANVAS_FACTORY_POLICY()
+				,true
+			)
+		);
+		
+#endif // defined(GO_DIRECTLY_TO_MAIN_CANVAS_AFTER_SPLASH)
+		
+#endif // defined(USE_SEPERATE_MAIN_MENU)
+	
+	}
+	
+	//
+	//	bootstrap()
+	//
+	
+	public void bootstrap() {
+	
+		if ( null == gameInternals ) {
+	
+			try {
+			
+				gameInternals = new GameInternals();
+				
+				if ( !gameInternals.Bootstrap( "/res/" + getAppProperty( "MIDlet-Name" ), false ) ) {
+				
+					System.out.println( "ERROR::Unable to bootstrap" );
+				
+					gameInternals = null;
+				
+				}
+			
+			} catch ( Throwable e ) {
+			
+				REPORT_EXCEPTION_POLICY( e, EXCEPTION_MIDLET_BOOTSTRAP );
+			
+				destroyApp(	false );
+				
+				notifyDestroyed();
+			
+			}
+			
+		}
+		
+	}
+
+	// ------------------------------------------------------------------------
+	
+	//
+	//	LoadString()
+	//
+	
+	public String LoadString( String lookup ) {
+	
+		try {
+			
+			if ( lookup.startsWith( "file:" ) ) {
+			
+				CFileReader inFile = null;
+
+				inFile = new CFileReader();
+				
+				if ( !inFile.Open( lookup.substring( 5 ), false ) ) {
+				
+					return lookup;
+			
+				}
+				
+				String loadedString = inFile.ReadString();
+				
+				inFile.Close();
+				
+				return loadedString;
+			
+			}
+
+#if defined(USE_JAD_FOR_TRANSLATION_TABLE)				
+
+			else {
+			
+				int len = lookup.length();
+				
+				StringBuffer keyBuffer = new StringBuffer( len );
+				
+				for ( int i = 0; i < len; i++ ) {
+				
+					char ch = lookup.charAt( i );
+					
+					if ( Character.isDigit( ch )
+						|| Character.isLowerCase( Character.toLowerCase( ch ) )
+						) {
+						
+						keyBuffer.append( ch );
+						
+					}
+				
+				}
+				
+				String value = getAppProperty( keyBuffer.toString() );
+				
+				if ( null == value ) return lookup;
+
+				return value;
+		
+			}
+
+#else
+
+			return lookup;
+				
+#endif // defined(USE_JAD_FOR_TRANSLATION_TABLE)				
+		
+		} catch ( Throwable e ) {
+		
+			REPORT_EXCEPTION_POLICY( e, EXCEPTION_LOAD_STRING );
+		
+			return lookup;
+			
+		}
+
+	}
+	
+	//
+	//	Exception()
+	//
+	
+	static void Exception( Throwable e, int id ) {
+	
+		System.out.println( e.toString() + ":" + id );
+	
+	}	
+	
+}
+

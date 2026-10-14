@@ -1,0 +1,698 @@
+// =============================================================================
+//	Copyright (c) 2003, SILLY BYTES, LLC
+//	All rights reserved, unauthorized reproduction prohibited
+// =============================================================================
+
+#include "cross_language.h"
+#include "project.h"
+
+// =============================================================================
+
+#if defined(NOKIA_UI_API_SPECIFIC_BUILD)
+#define USE_NOKIA
+#endif // defined(NOKIA_UI_API_SPECIFIC_BUILD)
+
+#define USE_ALERT_WARNING_FOR_RESET_GAME
+//#define GAME_AUTOMATED_TESTING_HACK
+//#define GENERATE_LIST_IMAGES_WITH_CODE
+#define USE_PLAY_COMMAND_ON_MAIN_INSTEAD_OF_EXIT
+
+// ----------------------------------------------------------------------------
+
+#if !defined(GAME_DOES_NOT_HAVE_LEVEL_SELECTION_LEVEL)
+
+#define INCLUDE_CHANGE_LEVEL_OPTION_IN_PAUSE_MENU
+
+#endif // !defined(GAME_DOES_NOT_HAVE_LEVEL_SELECTION_LEVEL)
+
+// ----------------------------------------------------------------------------
+
+#define DBUG_TRACE( XXX )		/* nop */
+//#define DBUG_TRACE( XXX )		System.out.println( XXX );
+
+// ----------------------------------------------------------------------------
+
+#if defined(GENERATE_LIST_IMAGES_WITH_CODE)
+
+#define LIST_IMAGE_POLICY( XXX ) XXX
+
+#else
+
+#define LIST_IMAGE_POLICY( XXX ) null
+
+#endif
+
+// ----------------------------------------------------------------------------
+
+#include "GameInternals.h"
+
+// ----------------------------------------------------------------------------
+
+import javax.microedition.lcdui.*;
+
+//
+//	PauseMenu
+//
+
+public class PauseMenu extends List implements CommandListener {
+
+	private Displayable backDisplay;
+
+	private PROJECT_NAME midlet;
+	
+	private boolean bMainMenu;
+	
+	// ------------------------------------------------------------------------
+	
+	private Command cmdBack;
+	
+	private Command cmdExit;
+	
+#if defined(USE_PLAY_COMMAND_ON_MAIN_INSTEAD_OF_EXIT)
+
+	private Command cmdPlay;
+	
+#endif // defined(USE_PLAY_COMMAND_ON_MAIN_INSTEAD_OF_EXIT)
+	
+	// ------------------------------------------------------------------------
+	
+	private int idxContinue;
+	
+	private int idxHelp;
+	
+	private int idxAbout;
+	
+	private int idxExit;
+	
+	// ------------------------------------------------------------------------
+	
+#if defined(USE_ALERT_WARNING_FOR_RESET_GAME)
+
+	boolean bHaveShownClearWarning;
+	
+#endif // defined(USE_ALERT_WARNING_FOR_RESET_GAME)
+
+	// ------------------------------------------------------------------------
+	
+#if defined(INCLUDE_CHANGE_LEVEL_OPTION_IN_PAUSE_MENU)
+	
+	private int idxChangeLevel;
+	
+#endif // defined(INCLUDE_CHANGE_LEVEL_OPTION_IN_PAUSE_MENU)
+
+#if defined(USE_SEPERATE_OPTIONS_MENU)
+
+	private int idxOptions;
+	
+#else
+
+#if defined(USE_NOKIA)
+
+	private int idxSounds;
+	
+	private int idxBacklight;
+
+#endif // defined(USE_NOKIA)
+
+	
+	private int idxClearSavedGame;
+	
+#if defined(POLICY_IMPLEMENT_ENTITY_REMAP_ON_LEVEL_LOAD)
+
+	private int idxSwapMainCharacter;
+
+#endif // defined(POLICY_IMPLEMENT_ENTITY_REMAP_ON_LEVEL_LOAD)
+	
+#endif // defined(USE_SEPERATE_OPTIONS_MENU)
+
+	// ------------------------------------------------------------------------
+	
+#if defined(GAME_AUTOMATED_TESTING_HACK)
+
+	private int idxAutomatedTesting;	
+
+#endif // GAME_AUTOMATED_TESTING_HACK
+
+	// ------------------------------------------------------------------------
+	
+#define LIST_IMAGE_CX	9
+#define LIST_IMAGE_CY	9
+	
+#if defined(GENERATE_LIST_IMAGES_WITH_CODE)
+
+	// ------------------------------------------------------------------------
+	
+	Image imgRedBox;
+	
+	Image imgGreenBox;
+	
+	Image imgUnselectedBox;
+	
+	Image imgSelectedBox;
+
+	// ------------------------------------------------------------------------
+	
+	//
+	//	CreateBaseImage()
+	//
+	
+	synchronized private Image CreateBaseImage( int r, int g, int b, boolean bInsideX ) {
+	
+DBUG_TRACE( "A" );
+	
+		Image img = Image.createImage( LIST_IMAGE_CX, LIST_IMAGE_CY );
+		
+		Graphics gfx = img.getGraphics();
+		
+DBUG_TRACE( "B" );
+	
+		gfx.setColor( 0, 0, 0 );
+		gfx.fillRect( 0, 0, LIST_IMAGE_CX, LIST_IMAGE_CY );
+		
+DBUG_TRACE( "C" );
+	
+		gfx.setColor( r, g, b );
+		gfx.fillRect( 1, 1, LIST_IMAGE_CX - 2, LIST_IMAGE_CY - 2 );
+		
+		if ( bInsideX ) {
+		
+DBUG_TRACE( "D" );
+
+			gfx.setColor( 0, 0, 0 );
+			gfx.drawLine( 2, 2, LIST_IMAGE_CX - 2, LIST_IMAGE_CY - 2 );
+			gfx.drawLine( 2, LIST_IMAGE_CY - 2, LIST_IMAGE_CX - 2, 1 );
+			
+		}
+		
+DBUG_TRACE( "D" );
+
+		gfx = null;
+		
+		return img;
+	}
+	
+#endif // defined(GENERATE_LIST_IMAGES_WITH_CODE)
+	
+	// ------------------------------------------------------------------------
+
+	public PauseMenu( PROJECT_NAME midlet, Displayable backDisplay, boolean bMainMenu ) {
+	
+		super(
+			midlet.LoadString(
+				bMainMenu ? midlet.getAppProperty( "MIDlet-Name" ) : midlet.LoadString( "Paused" )
+			)
+			,List.IMPLICIT
+		);
+			
+		this.bMainMenu = bMainMenu;
+	
+		this.midlet = midlet;
+	
+		this.backDisplay = backDisplay;
+		
+		// --------------------------------------------------------------------
+		
+#if defined(GENERATE_LIST_IMAGES_WITH_CODE)
+
+		try {
+	
+DBUG_TRACE( "1" );
+
+			imgRedBox = CreateBaseImage( 255, 0, 0, false );
+			
+DBUG_TRACE( "2" );
+
+			imgGreenBox = CreateBaseImage( 0, 255, 0, false );
+			
+DBUG_TRACE( "3" );
+
+			imgUnselectedBox = CreateBaseImage( 255, 255, 255, false );
+			
+DBUG_TRACE( "4" );
+
+			imgSelectedBox = CreateBaseImage( 255, 255, 255, true );
+		
+		} catch ( Throwable e ) {
+		
+			REPORT_EXCEPTION_POLICY( e, EXCEPTION_CREATE_LIST_IMAGE );
+			
+			imgRedBox = null;
+			
+			imgGreenBox = null;
+			
+			imgUnselectedBox = null;
+			
+			imgSelectedBox = null;
+		
+		}
+
+DBUG_TRACE( "5" );
+
+#endif // defined(GENERATE_LIST_IMAGES_WITH_CODE)
+
+		// --------------------------------------------------------------------
+		
+		if ( bMainMenu ) {
+		
+#if defined(USE_PLAY_COMMAND_ON_MAIN_INSTEAD_OF_EXIT)
+
+			addCommand( cmdPlay = new Command( midlet.LoadString( "Play" ), Command.BACK, 1 ) );
+			
+#else
+	
+			addCommand( cmdExit = new Command( midlet.LoadString( "Exit" ), Command.EXIT, 1 ) );
+			
+#endif // defined(USE_PLAY_COMMAND_ON_MAIN_INSTEAD_OF_EXIT)
+		
+		} else {
+		
+			addCommand( cmdBack = new Command( midlet.LoadString( "Back" ), Command.BACK, 1 ) );
+			
+		}
+		
+DBUG_TRACE( "6" );
+
+		// --------------------------------------------------------------------
+		
+		idxContinue = append( "?", LIST_IMAGE_POLICY(imgGreenBox) );
+		
+#if defined(GAME_AUTOMATED_TESTING_HACK)
+
+		idxAutomatedTesting = append( "?", null );
+
+#endif // GAME_AUTOMATED_TESTING_HACK
+
+DBUG_TRACE( "7" );
+
+		// --------------------------------------------------------------------
+		
+#if defined(GAME_DOES_NOT_HAVE_LEVEL_SELECTION_LEVEL)		
+		
+		if ( !midlet.gameInternals.IsNewGame() ) {
+		
+			idxClearSavedGame = append( midlet.LoadString( "Start Over" ), LIST_IMAGE_POLICY(imgRedBox) );
+
+		} else {
+		
+			idxClearSavedGame = -1;
+		
+		}
+		
+#endif // defined(GAME_DOES_NOT_HAVE_LEVEL_SELECTION_LEVEL)		
+
+		// --------------------------------------------------------------------
+		
+		idxHelp = append( midlet.LoadString( "How To Play" ), LIST_IMAGE_POLICY(imgGreenBox) );
+		
+		idxAbout = append( midlet.LoadString( "About Game" ), LIST_IMAGE_POLICY(imgGreenBox) );
+		
+DBUG_TRACE( "8" );
+
+		// --------------------------------------------------------------------
+		
+#if defined(INCLUDE_CHANGE_LEVEL_OPTION_IN_PAUSE_MENU)
+
+		if ( bMainMenu ) {
+
+			idxChangeLevel = -1;
+		
+		} else {
+		
+			idxChangeLevel = append( midlet.LoadString( "Change Level" ), LIST_IMAGE_POLICY(imgRedBox) );
+			
+		}
+		
+DBUG_TRACE( "9" );
+
+#endif // defined(INCLUDE_CHANGE_LEVEL_OPTION_IN_PAUSE_MENU)
+
+		// --------------------------------------------------------------------
+		
+#if defined(USE_SEPERATE_OPTIONS_MENU)
+
+		idxOptions = append( midlet.LoadString( "Settings" ), LIST_IMAGE_POLICY(imgGreenBox) );
+		
+#else
+
+#if defined(POLICY_IMPLEMENT_ENTITY_REMAP_ON_LEVEL_LOAD)
+
+		if ( bMainMenu ) {
+
+			idxSwapMainCharacter = append( "?", null );
+			
+		} else {
+		
+			idxSwapMainCharacter = -1;
+		
+		}
+
+#endif // defined(POLICY_IMPLEMENT_ENTITY_REMAP_ON_LEVEL_LOAD)
+
+		// --------------------------------------------------------------------
+
+#if defined(USE_NOKIA)
+
+		idxSounds = append( "?", null );
+		
+		idxBacklight = append( "?", null );
+		
+#endif // defined(USE_NOKIA)
+
+		// --------------------------------------------------------------------
+		
+#if !defined(GAME_DOES_NOT_HAVE_LEVEL_SELECTION_LEVEL)		
+		
+		if ( !midlet.gameInternals.IsNewGame() ) {
+		
+			idxClearSavedGame = append( midlet.LoadString( "Reset Game" ), LIST_IMAGE_POLICY(imgRedBox) );
+
+		} else {
+		
+			idxClearSavedGame = -1;
+		
+		}
+		
+#endif // !defined(GAME_DOES_NOT_HAVE_LEVEL_SELECTION_LEVEL)		
+
+		// --------------------------------------------------------------------
+
+#endif // defined(USE_SEPERATE_OPTIONS_MENU)
+
+DBUG_TRACE( "10" );
+
+		// --------------------------------------------------------------------
+		
+		idxExit = append( midlet.LoadString( "Exit Game" ), LIST_IMAGE_POLICY(imgRedBox) );
+		
+DBUG_TRACE( "11" );
+
+		// --------------------------------------------------------------------
+		
+#if !defined(USE_SEPERATE_OPTIONS_MENU)
+
+		syncOptions();
+
+#endif // !defined(USE_SEPERATE_OPTIONS_MENU)
+
+DBUG_TRACE( "12" );
+
+		// --------------------------------------------------------------------
+		
+		setCommandListener( this );
+		
+DBUG_TRACE( "13" );
+
+	}
+	
+	// ------------------------------------------------------------------------
+	
+#if !defined(USE_SEPERATE_OPTIONS_MENU)
+
+	private void syncOptions() {
+	
+		// --------------------------------------------------------------------
+		
+		set(
+			idxContinue
+			,midlet.LoadString(
+				(midlet.gameInternals.IsNewGame()) ? "Start Game" : "Continue Game"
+			)
+			,LIST_IMAGE_POLICY(imgGreenBox)
+		);
+	
+		// --------------------------------------------------------------------
+
+#if defined(POLICY_IMPLEMENT_ENTITY_REMAP_ON_LEVEL_LOAD)
+
+		if ( -1 != idxSwapMainCharacter ) {
+		
+			set(
+				idxSwapMainCharacter
+				,midlet.LoadString(
+					midlet.gameInternals.policy_SwapMainCharacter ? "Play as (Mitzy)" : "Play as (Burt)"
+				)
+				,midlet.gameInternals.policy_SwapMainCharacter ? LIST_IMAGE_POLICY(imgSelectedBox) : LIST_IMAGE_POLICY(imgUnselectedBox)
+			);
+			
+		}
+
+#endif // defined(POLICY_IMPLEMENT_ENTITY_REMAP_ON_LEVEL_LOAD)
+
+		// --------------------------------------------------------------------
+		
+#if defined(USE_NOKIA)
+
+		if ( -1 != idxSounds ) {
+	
+			set(
+				idxSounds
+				,midlet.LoadString(
+					midlet.gameInternals.policy_Sounds ? "Sounds (ON)" : "Sounds (OFF)"
+				)
+				,midlet.gameInternals.policy_Sounds ? LIST_IMAGE_POLICY(imgSelectedBox) : LIST_IMAGE_POLICY(imgUnselectedBox)
+			);
+			
+		}
+	
+#endif // defined(USE_NOKIA)
+
+	// --------------------------------------------------------------------
+	
+#if defined(USE_NOKIA)
+
+		if ( -1 != idxBacklight ) {
+	
+			set(
+				idxBacklight
+				,midlet.LoadString(
+					midlet.gameInternals.policy_Backlight ? "Backlight (ON)" : "Backlight (OFF)"
+				)
+				,midlet.gameInternals.policy_Backlight ? LIST_IMAGE_POLICY(imgSelectedBox) : LIST_IMAGE_POLICY(imgUnselectedBox)
+			);
+			
+		}
+		
+#endif // defined(USE_NOKIA)
+
+		// --------------------------------------------------------------------
+	
+#if defined(GAME_AUTOMATED_TESTING_HACK)
+
+		if ( -1 != idxAutomatedTesting ) {
+		
+			set(
+				idxAutomatedTesting
+				,midlet.LoadString(
+					midlet.gameInternals.HACKOLA_bAutomatedTesting ? "Autoplay (ON)" : "Autoplay (OFF)"
+				)
+				,midlet.gameInternals.HACKOLA_bAutomatedTesting ? LIST_IMAGE_POLICY(imgSelectedBox) : LIST_IMAGE_POLICY(imgUnselectedBox)
+			);
+			
+		}
+
+#endif // GAME_AUTOMATED_TESTING_HACK
+
+		// --------------------------------------------------------------------
+		
+	}
+	
+#endif // !defined(USE_SEPERATE_OPTIONS_MENU)
+
+	// ------------------------------------------------------------------------
+	
+	public void commandAction( Command c, Displayable s ) {
+	
+		Display display = Display.getDisplay( midlet );
+		
+		int index = getSelectedIndex();
+			
+#if defined(USE_PLAY_COMMAND_ON_MAIN_INSTEAD_OF_EXIT)
+
+		if ( c.equals( cmdPlay ) ) {
+		
+			index = idxContinue;
+		
+		}
+		
+#endif // defined(USE_PLAY_COMMAND_ON_MAIN_INSTEAD_OF_EXIT)
+	
+		if ( c.equals( cmdBack ) ) {
+		
+			display.setCurrent( backDisplay );
+		
+		} else if ( c.equals( cmdExit ) ) {
+		
+			midlet.exit();
+		
+		} else {
+		
+			if ( -1 == index ) return;
+			
+			if ( index == idxContinue ) {
+			
+				if ( bMainMenu ) {
+				
+					midlet.gameInternals.Start( bMainMenu );
+				
+				}
+				
+				display.setCurrent( backDisplay );
+				
+#if defined(INCLUDE_CHANGE_LEVEL_OPTION_IN_PAUSE_MENU)
+
+			} else if ( index == idxChangeLevel ) {
+			
+				midlet.gameInternals.ReturnToLevelSelection();
+			
+				display.setCurrent( backDisplay );
+				
+#endif // defined(INCLUDE_CHANGE_LEVEL_OPTION_IN_PAUSE_MENU)
+				
+			} else if ( index == idxHelp ) {
+			
+				display.setCurrent(
+					new TextViewer(
+						midlet.LoadString( "How To Play" )
+						,midlet.LoadString( "file:/res/help.txt" )
+						,midlet
+						,this
+					)
+				);
+				
+			} else if ( index == idxAbout ) {
+			
+				display.setCurrent(
+					new TextViewer(
+						midlet.LoadString( "About Game" )
+						,midlet.LoadString( "file:/res/about.txt" )
+						,midlet
+						,this
+					)
+				);
+				
+#if defined(USE_SEPERATE_OPTIONS_MENU)
+
+			} else if ( index == idxOptions ) {
+			
+				display.setCurrent( new OptionsMenu( midlet, this ) );
+				
+#endif // defined(USE_SEPERATE_OPTIONS_MENU)
+
+			} else if ( index == idxExit ) {
+			
+				midlet.exit();
+			
+#if !defined(USE_SEPERATE_OPTIONS_MENU)
+
+			} else {
+			
+#if defined(USE_NOKIA)
+
+				if ( index == idxSounds ) {
+				
+					midlet.gameInternals.policy_Sounds = 
+						!midlet.gameInternals.policy_Sounds;
+				
+				} else if ( index == idxBacklight ) {
+				
+					midlet.gameInternals.policy_Backlight = 
+						!midlet.gameInternals.policy_Backlight;
+					
+				} else 
+				
+#endif // defined(USE_NOKIA)
+				
+				if ( index == idxClearSavedGame ) {
+				
+#if defined(USE_ALERT_WARNING_FOR_RESET_GAME)
+
+					if ( !bHaveShownClearWarning ) {
+
+#if defined(GAME_DOES_NOT_HAVE_LEVEL_SELECTION_LEVEL)		
+
+						Alert warningAlert = new Alert(
+							midlet.LoadString( "Start Over?" )
+							,midlet.LoadString( "Reselect this option to confirm game reset." )
+							,null
+							,AlertType.WARNING
+						);
+						
+#else // defined(GAME_DOES_NOT_HAVE_LEVEL_SELECTION_LEVEL)		
+
+						Alert warningAlert = new Alert(
+							midlet.LoadString( "Reset Game?" )
+							,midlet.LoadString( "Resetting your game will clear your saved game; if you wish to clear your game reselect this option." )
+							,null
+							,AlertType.WARNING
+						);
+						
+#endif // defined(GAME_DOES_NOT_HAVE_LEVEL_SELECTION_LEVEL)		
+
+						warningAlert.setTimeout( Alert.FOREVER );
+						
+						display.setCurrent( warningAlert, this );
+						
+						bHaveShownClearWarning = true;
+						
+						return;
+						
+					}
+					
+#endif // defined(USE_ALERT_WARNING_FOR_RESET_GAME)
+				
+					midlet.gameInternals.ClearSavedGame();
+					
+#if 1 // start the game over! (BPT 10/10/03)
+
+					midlet.gameInternals.Start( true );
+					
+					display.setCurrent( backDisplay );
+					
+#else // used too much memory!
+
+					display.setCurrent( new PauseMenu( midlet, backDisplay, bMainMenu ) );
+					
+					return;
+					
+#endif					
+										
+#if defined(GAME_AUTOMATED_TESTING_HACK)
+
+				} else if ( index == idxAutomatedTesting ) {
+				
+					midlet.gameInternals.HACKOLA_bAutomatedTesting =
+						!midlet.gameInternals.HACKOLA_bAutomatedTesting;
+						
+#endif // GAME_AUTOMATED_TESTING_HACK
+
+#if defined(POLICY_IMPLEMENT_ENTITY_REMAP_ON_LEVEL_LOAD)
+
+				} else if ( index == idxSwapMainCharacter ) {
+				
+					midlet.gameInternals.policy_SwapMainCharacter =
+						!midlet.gameInternals.policy_SwapMainCharacter;
+						
+#endif // defined(POLICY_IMPLEMENT_ENTITY_REMAP_ON_LEVEL_LOAD)
+
+				}
+
+#if 0				
+				else {
+				
+					return;
+				
+				}
+#endif
+				
+				syncOptions();
+				
+#endif // defined(USE_SEPERATE_OPTIONS_MENU)
+
+			}
+			
+		}
+	
+	}
+	
+} // PauseMenu
+

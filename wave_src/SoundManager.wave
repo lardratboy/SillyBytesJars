@@ -1,0 +1,602 @@
+// =============================================================================
+//	Copyright (c) 2003, SILLY BYTES, LLC
+//	All rights reserved, unauthorized reproduction prohibited
+// =============================================================================
+
+#include "cross_language.h"
+#include "project.h"
+
+// =============================================================================
+
+#if defined(NOKIA_UI_API_SPECIFIC_BUILD)
+#define USE_NOKIA
+#endif // defined(NOKIA_UI_API_SPECIFIC_BUILD)
+
+#define LINKED_SOUND_SYSTEM
+
+// -----------------------------------------------------------------------------
+
+#include "GameInternals.h"
+
+// ----------------------------------------------------------------------------
+
+#define MAX_SOUND_CHANNELS		1
+
+// ----------------------------------------------------------------------------
+
+#if 1
+
+#define DBUG_DUMP_MEMORY( MSG_TXT )		/* nop */
+
+#else
+
+#define DBUG_DUMP_MEMORY( MSG_TXT ) \
+	System.gc(); \
+	System.out.println( MSG_TXT + ": free (" + Runtime.getRuntime().freeMemory() + "/" + Runtime.getRuntime().totalMemory() + ")" );
+	
+#endif
+
+// ----------------------------------------------------------------------------
+
+#define DBUG_TRACE_LOAD( XXX )		/* nop */
+//#define DBUG_TRACE_LOAD( XXX )		System.out.println( XXX );
+
+// ----------------------------------------------------------------------------
+
+#define DBUG_TRACE( XXX )			/* nop */
+//#define DBUG_TRACE( XXX )			System.out.println( XXX );
+
+// ----------------------------------------------------------------------------
+
+#if defined(USE_NOKIA)
+
+import com.nokia.mid.sound.*;
+import com.nokia.mid.ui.DeviceControl;
+
+#endif
+
+import javax.microedition.lcdui.*;
+
+// ----------------------------------------------------------------------------
+
+class SoundManager {
+
+	// ------------------------------------------------------------------------
+	
+#if defined(USE_NOKIA)
+
+	//
+	//	Channel
+	//
+
+	static private class Channel implements SoundListener {
+	
+		// --------------------------------------------------------------------
+		
+		private Sound sound;
+		
+		int priority;
+		
+		// ------------------------------------------------------------------------
+		
+		public void soundStateChanged( Sound sound, int event ) {
+		
+			if ( Sound.SOUND_STOPPED == event ) { // sound.getState() ) {
+			
+				priority = -1; 
+			
+			}
+		
+		}
+
+		// --------------------------------------------------------------------
+		
+		public boolean isPlaying() {
+		
+			if ( null == sound ) return false;
+			
+			return (Sound.SOUND_PLAYING == sound.getState());
+		
+		}
+		
+		public int getPriority() {
+		
+			if ( !isPlaying() ) return -1;
+		
+			return priority;
+		
+		}
+
+		// --------------------------------------------------------------------
+		
+		public void play( byte sndData[], int priority ) {
+		
+			// ----------------------------------------------------------------
+			
+			boolean bInit = true;
+			
+			if ( null == sound ) {
+			
+				try {
+			
+					sound = new Sound( sndData, Sound.FORMAT_TONE );
+					
+					sound.setSoundListener( this );
+					
+					bInit = false;
+					
+				} catch ( Throwable e ) {
+				
+					sound = null;
+					
+					REPORT_EXCEPTION_POLICY( e, EXCEPTION_PLAY_SOUND );
+					
+					return;
+					
+				}
+			
+			}
+			
+			// ----------------------------------------------------------------
+			
+			this.priority = priority;
+		
+			try {
+			
+				if ( bInit ) {
+		
+					sound.init( sndData, Sound.FORMAT_TONE );
+					
+				}
+				
+				sound.play( 1 );
+				
+			} catch ( Throwable e ) {
+			
+				REPORT_EXCEPTION_POLICY( e, EXCEPTION_PLAY_SOUND_2 );
+				
+				return;
+				
+			}
+			
+		}
+		
+	} // Channel	
+	
+#endif // defined(USE_NOKIA)
+	
+	// ------------------------------------------------------------------------
+
+#if defined(USE_NOKIA)
+
+	private Channel m_Channels[];
+	
+	int queuedSound;
+	
+	int queuedPriority;
+	
+#endif // defined(USE_NOKIA)
+    
+	// ------------------------------------------------------------------------
+	
+	SoundManager() {
+	
+#if defined(USE_NOKIA)
+
+		try {
+			
+			int channelCount = Sound.getConcurrentSoundCount( Sound.FORMAT_TONE );
+			
+			DBUG_TRACE_LOAD( "channelCount = " + channelCount + " limiting to " + MAX_SOUND_CHANNELS );
+			
+			if ( MAX_SOUND_CHANNELS < channelCount ) channelCount = MAX_SOUND_CHANNELS;
+
+			if ( 0 < channelCount ) {
+			
+				m_Channels = new Channel [ channelCount ];
+					
+			}
+
+		} catch ( Throwable e ) {
+		
+			REPORT_EXCEPTION_POLICY( e, EXCEPTION_SOUND_MANAGER );
+			
+		}
+#endif
+
+	}
+	
+	// ------------------------------------------------------------------------
+	
+#if defined(USE_NOKIA)
+
+	//
+	//	SoundDatabase
+	//
+
+	static private class SoundDatabase {
+	
+		short soundDataIndex[];
+		short soundDataLength[];
+		byte priority[];
+		byte vibrationLevel[];
+		byte vibrationDuration[];
+		byte otaSoundData[];
+		
+#if defined(LINKED_SOUND_SYSTEM)
+
+		byte nextSoundLink[];				// what sound to play next (linked list fashion)
+		byte currentVirtualSoundLink[];		// what is the current sound index for this 'virtual' sound
+		
+#endif // defined(LINKED_SOUND_SYSTEM)
+
+	}
+	
+	SoundDatabase m_SoundDatabase;
+	
+#endif // defined(USE_NOKIA)
+
+	// ------------------------------------------------------------------------
+	
+	//
+	//	Load()
+	//
+
+	boolean Load( String basename, boolean bUseHttp ) {
+	
+#if !defined(USE_NOKIA)
+
+		return true;
+		
+#else
+
+		if ( null == m_Channels ) return true;
+		
+		CFileReader inFile = null;
+
+		try {
+	
+			// ----------------------------------------------------------------
+			
+			inFile = new CFileReader();
+			
+			if ( !inFile.Open( basename + ".ota", bUseHttp ) ) {
+			
+				inFile = null;
+				return false;
+		
+			}
+			
+			int chunkSize = inFile.Read_16();
+			
+			// ----------------------------------------------------------------
+			
+			inFile.Read_Validate_DECAFBAD();
+				
+			// ----------------------------------------------------------------
+			// load in the sound control data
+			// ----------------------------------------------------------------
+			
+			int totalSounds = inFile.ReadByte();
+			
+DBUG_TRACE_LOAD( "totalSounds = " + totalSounds )
+
+			// ----------------------------------------------------------------
+			
+			m_SoundDatabase = new SoundDatabase();
+			
+			m_SoundDatabase.soundDataIndex = new short [ totalSounds ];
+			m_SoundDatabase.soundDataLength = new short [ totalSounds ];
+			m_SoundDatabase.priority = new byte [ totalSounds ];
+			m_SoundDatabase.vibrationLevel = new byte [ totalSounds ];
+			m_SoundDatabase.vibrationDuration = new byte [ totalSounds ];
+			
+#if defined(LINKED_SOUND_SYSTEM)
+
+			m_SoundDatabase.nextSoundLink = new byte [ totalSounds ];
+			m_SoundDatabase.currentVirtualSoundLink = new byte [ totalSounds ];
+		
+#endif // defined(LINKED_SOUND_SYSTEM)
+			// ----------------------------------------------------------------
+			
+			inFile.Read_Validate_16( (short)0xDEAD );
+			
+			for	( int i	= 0; i < totalSounds; i++ ) {
+				
+				// ------------------------------------------------------------
+				
+				m_SoundDatabase.soundDataIndex[ i ] = inFile.Read_16();
+				
+				m_SoundDatabase.soundDataLength[ i ] = inFile.Read_16();
+				
+				m_SoundDatabase.priority[ i ] = (byte)inFile.ReadByte();
+				
+				m_SoundDatabase.vibrationLevel[ i ] = (byte)inFile.ReadByte();
+				
+				if ( 0 != m_SoundDatabase.vibrationLevel[ i ] ) {
+				
+					m_SoundDatabase.vibrationDuration[ i ] = (byte)inFile.ReadByte();
+				
+				}
+				
+				// ------------------------------------------------------------
+				
+#if defined(LINKED_SOUND_SYSTEM)
+
+				m_SoundDatabase.nextSoundLink[ i ] = (byte)inFile.ReadByte();
+				
+#endif // defined(LINKED_SOUND_SYSTEM)
+				
+				// ------------------------------------------------------------
+				
+DBUG_TRACE_LOAD( "Sound " + i );
+DBUG_TRACE_LOAD( "\tsoundDataIndex    = " + m_SoundDatabase.soundDataIndex[ i ] );
+DBUG_TRACE_LOAD( "\tsoundDataLength   = " + m_SoundDatabase.soundDataLength[ i ] );
+DBUG_TRACE_LOAD( "\tpriority          = " + m_SoundDatabase.priority[ i ] );
+DBUG_TRACE_LOAD( "\tvibrationLevel    = " + m_SoundDatabase.vibrationLevel[ i ] );
+DBUG_TRACE_LOAD( "\tvibrationDuration = " + m_SoundDatabase.vibrationDuration[ i ] );
+						
+#if defined(LINKED_SOUND_SYSTEM)
+DBUG_TRACE_LOAD( "\tnext              = " + m_SoundDatabase.nextSoundLink[ i ] );
+#endif // defined(LINKED_SOUND_SYSTEM)
+
+				// ------------------------------------------------------------
+				
+			}
+			
+			inFile.Read_Validate_16( (short)0xBEEF );
+
+			// ----------------------------------------------------------------
+			// load in the sound control data
+			// ----------------------------------------------------------------
+			
+			int soundDataSize = inFile.Read_16();
+			
+DBUG_TRACE_LOAD( "soundDataSize = " + soundDataSize )
+
+			inFile.Read_Validate_16( (short)0xDEAD );
+			
+			// ------------------------------------------------------------
+			
+			m_SoundDatabase.otaSoundData = inFile.Read( soundDataSize );
+					
+			// ------------------------------------------------------------
+			
+			inFile.Read_Validate_16( (short)0xBEEF );
+				
+		} catch ( Throwable e ) {
+		
+			REPORT_EXCEPTION_POLICY( e, EXCEPTION_LOAD_OTA_DATA );
+			
+			return false;
+			
+		} finally {
+		
+			if ( null != inFile ) {
+			
+				inFile.Close();
+				inFile = null;
+			
+			}
+		}
+		
+		// ----------------------------------------------------------------
+		// ----------------------------------------------------------------
+		
+DBUG_TRACE_LOAD( "sounds loaded!" )
+		
+		return true;
+		
+#endif // defined(USE_NOKIA)
+		
+	}
+
+	// ------------------------------------------------------------------------
+	
+#if defined(USE_NOKIA)
+
+	private Channel GetAvailable( int priority ) {
+	
+		if ( null == m_Channels[ 0 ] ) {
+		
+			try {
+			
+				m_Channels[ 0 ] = new Channel();
+			
+			} catch ( Throwable e ) {
+			
+				REPORT_EXCEPTION_POLICY( e, EXCEPTION_GET_AVAILABLE_CHANNEL );
+				
+				return null;
+
+			}
+		
+		} else {
+		
+			if ( m_Channels[ 0 ].isPlaying() ) {
+			
+#if defined(EQUAL_SOUND_PRIORITIES_DONT_STOP)
+
+				if ( m_Channels[ 0 ].getPriority() >= priority ) {
+				
+#else 
+
+				if ( m_Channels[ 0 ].getPriority() > priority ) {
+				
+#endif // defined(EQUAL_SOUND_PRIORITIES_DONT_STOP)
+			
+					return null;
+				
+				}
+			
+			}
+		
+		}
+		
+		return m_Channels[ 0 ];
+	
+	}
+	
+#endif // defined(USE_NOKIA)
+
+	// ------------------------------------------------------------------------
+	
+	//
+	//	Queue()
+	//
+	
+	void Queue( int sound ) {
+	
+#if defined(USE_NOKIA)
+
+		if ( (null == m_Channels) || (0 >= sound) ) return;
+		
+		int soundPriority = m_SoundDatabase.priority[ sound - 1 ];  // need to look sound priority up...
+		
+		if ( soundPriority > queuedPriority ) {
+		
+			queuedSound = sound;
+			
+			queuedPriority = soundPriority;
+		
+		}
+	
+#endif // defined(USE_NOKIA)
+
+	}
+	
+	// ------------------------------------------------------------------------
+	
+	//
+	//	Flush()
+	//
+	
+	void Flush() {
+	
+#if defined(USE_NOKIA)
+
+		if ( (null == m_Channels) || (0 >= queuedSound) ) {
+		
+			queuedSound = 0;
+		
+			queuedPriority = 0;
+		
+			return;
+			
+		}
+		
+		// --------------------------------------------------------------------
+		
+		Channel avail = GetAvailable( queuedPriority );
+		
+		if ( null != avail ) {
+		
+			try {
+			
+				// extract the sound data from the sound database (use the system?)
+				// ------------------------------------------------------------
+				
+				int soundIndex = queuedSound - 1;
+				
+#if defined(LINKED_SOUND_SYSTEM)
+
+				if ( 0 != m_SoundDatabase.currentVirtualSoundLink[ soundIndex ] ) {
+				
+					soundIndex = m_SoundDatabase.currentVirtualSoundLink[ soundIndex ] - 1;
+				
+					m_SoundDatabase.currentVirtualSoundLink[ queuedSound - 1 ] = m_SoundDatabase.nextSoundLink[ soundIndex ];
+					
+				} else {
+				
+					m_SoundDatabase.currentVirtualSoundLink[ soundIndex ] = 
+						m_SoundDatabase.nextSoundLink[ soundIndex ];
+				
+				}
+				
+				if ( 0 != m_SoundDatabase.currentVirtualSoundLink[ queuedSound - 1 ] ) {
+				
+					DBUG_TRACE( "sound " + queuedSound + " next play remaped to " + m_SoundDatabase.currentVirtualSoundLink[ queuedSound - 1 ] );
+					
+				}
+			
+#endif // defined(LINKED_SOUND_SYSTEM)
+
+				int soundByteCount = m_SoundDatabase.soundDataLength[ soundIndex ];
+				
+				int soundDataIndex =  m_SoundDatabase.soundDataIndex[ soundIndex ] + soundByteCount;
+			
+DBUG_TRACE( "\tExtracting sound " + (soundIndex + 1) + " offset " + soundDataIndex + " size " + soundByteCount );
+				
+				byte extractedOTAData[] = new byte [ soundByteCount ];
+				
+				for ( int i = soundByteCount; 0 <= --i; ) {
+				
+					extractedOTAData[ i ] = m_SoundDatabase.otaSoundData[ --soundDataIndex ];
+				
+				}
+			
+				// ------------------------------------------------------------
+				
+//DBUG_TRACE( "playing sound " + (soundIndex + 1) + " priority " + queuedPriority );			
+				
+				avail.play( extractedOTAData, queuedPriority );
+				
+//DBUG_TRACE( "AS1" );
+				
+				extractedOTAData = null;
+				
+//DBUG_TRACE( "AS2" );
+
+			} catch ( Throwable e ) {
+			
+				REPORT_EXCEPTION_POLICY( e, EXCEPTION_FLUSH_SOUNDS );
+				
+			}		
+			
+		}
+		
+		// clear the sound queue
+		// --------------------------------------------------------------------
+		
+		queuedSound = 0;
+		
+		queuedPriority = 0;
+		
+#endif // defined(USE_NOKIA)
+		
+	}
+
+	// ------------------------------------------------------------------------
+	
+	//
+	//	ResetLogicalSounds()
+	//
+	
+	public void ResetLogicalSounds() {
+	
+#if defined(LINKED_SOUND_SYSTEM) && defined(USE_NOKIA)
+
+		int totalSounds = m_SoundDatabase.currentVirtualSoundLink.length;
+		
+		for ( int i = 0; i < totalSounds; i++ ) {
+		
+			m_SoundDatabase.currentVirtualSoundLink[ i ] = 0;
+			
+		}
+
+#endif // defined(LINKED_SOUND_SYSTEM) && defined(USE_NOKIA)
+
+	}
+	
+	public void AssociateLogicalSound( byte logical, byte physical ) {
+	
+#if defined(LINKED_SOUND_SYSTEM) && defined(USE_NOKIA)
+
+		m_SoundDatabase.currentVirtualSoundLink[ logical ] = physical;
+	
+#endif // defined(LINKED_SOUND_SYSTEM) && defined(USE_NOKIA)
+
+	}
+
+} // SoundManager
+

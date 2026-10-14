@@ -1,0 +1,69 @@
+// =============================================================================
+//	Copyright (c) 2003, SILLY BYTES, LLC
+//	All rights reserved, unauthorized reproduction prohibited
+// =============================================================================
+
+#include "cross_language.h"
+#include "project.h"
+
+// =============================================================================
+
+import javax.microedition.lcdui.*;
+
+// -----------------------------------------------------------------------------
+
+//
+//	TextViewer
+//
+
+public class TextViewer extends Form implements CommandListener {
+
+	private Displayable backDisplay;
+
+	private Command cmdBack;
+	
+	private PROJECT_NAME midlet;
+	
+	// --------------------------------------------------------------------
+
+	public TextViewer(
+		String title
+		,String text
+		,PROJECT_NAME midlet
+		,Displayable backDisplay
+	) {
+	
+		super( title );
+		
+		this.midlet = midlet;
+	
+		this.backDisplay = backDisplay;
+		
+		cmdBack = new Command( midlet.LoadString( "Back" ), Command.BACK, 1 );
+		
+		addCommand( cmdBack );
+		
+		// ----------------------------------------------------------------
+		
+		append( new StringItem( null, text ) );	
+		
+		// ----------------------------------------------------------------
+		
+		setCommandListener( this );
+		
+	}
+
+	public void commandAction( Command c, Displayable s ) {
+	
+		Display display = Display.getDisplay( midlet );
+	
+		if ( c.equals( cmdBack ) ) {
+		
+			display.setCurrent( backDisplay );
+		
+		}
+	
+	}
+	
+} // TextViewer
+
